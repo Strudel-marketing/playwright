@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     libdrm2 \
+    libdrm-common \
     libxshmfence1 \
     libgbm1 \
     xdg-utils \
