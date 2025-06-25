@@ -11,6 +11,14 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// Static files serving for screenshots
+app.use('/screenshots', express.static('/app/screenshots', {
+    maxAge: '7d',
+    setHeaders: (res, path) => {
+        res.setHeader('Content-Type', 'image/png');
+    }
+}));
+
 // Global browser instance
 let globalBrowser = null;
 
@@ -808,12 +816,12 @@ app.post('/api/screenshot', async (req, res) => {
             });
         }
         
-        const screenshotOptions = {
-            path: `/tmp/screenshot_${Date.now()}.png`,
+        const filename = `screenshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+            const screenshotOptions = {
+            path: `/app/screenshots/${filename}`,
             fullPage: options.fullPage !== false,
             ...options
         };
-        
         if (options.selector) {
             const element = await page.$(options.selector);
             if (element) {
