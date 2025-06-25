@@ -696,32 +696,32 @@ app.post('/api/extract/quick-check', async (req, res) => {
     const hasSchemaTypes = [];
     
     // Check for common schema types - improved version
-const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-jsonLDScripts.forEach(script => {
-    try {
-        const data = JSON.parse(script.textContent);
+    const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+    jsonLDScripts.forEach(script => {
+        try {
+            const data = JSON.parse(script.textContent);
         
-        // Function to extract types recursively
-        function extractTypes(obj) {
-            if (!obj) return;
-            
-            if (typeof obj === 'object') {
-                if (obj['@type']) {
-                    if (Array.isArray(obj['@type'])) {
-                        hasSchemaTypes.push(...obj['@type']);
-                    } else {
-                        hasSchemaTypes.push(obj['@type']);
-                    }
-                }
+            // Function to extract types recursively
+            function extractTypes(obj) {
+                if (!obj) return;
                 
-                // Check all properties recursively
-                Object.values(obj).forEach(value => {
-                    if (Array.isArray(value)) {
-                        value.forEach(item => extractTypes(item));
-                    } else if (typeof value === 'object') {
-                        extractTypes(value);
+                if (typeof obj === 'object') {
+                    if (obj['@type']) {
+                        if (Array.isArray(obj['@type'])) {
+                            hasSchemaTypes.push(...obj['@type']);
+                        } else {
+                            hasSchemaTypes.push(obj['@type']);
+                        }
                     }
-                });
+                    
+                    // Check all properties recursively
+                    Object.values(obj).forEach(value => {
+                        if (Array.isArray(value)) {
+                            value.forEach(item => extractTypes(item));
+                        } else if (typeof value === 'object') {
+                            extractTypes(value);
+                        }
+                    });
             }
         }
         
