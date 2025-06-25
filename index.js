@@ -1079,50 +1079,6 @@ app.post('/api/validate/schema', async (req, res) => {
 // Run cleanup every 24 hours
 setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
 
-// Schema Validation Endpoint
-app.post('/api/validate/schema', async (req, res) => {
-    const { url } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({ success: false, error: 'URL required' });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        const extractedData = await extractAllSchemas(page);
-        
-        const results = [];
-        if (extractedData.jsonLD) {
-            for (const schema of extractedData.jsonLD) {
-                if (schema['@type']) {
-                    const validation = schemaValidator.validateSchema(schema);
-                    results.push({
-                        type: schema['@type'],
-                        valid: validation.valid,
-                        score: validation.score,
-                        errors: validation.errors,
-                        warnings: validation.warnings || []
-                    });
-                }
-            }
-        }
-        
-        res.json({ success: true, url, schemas: results });
-        
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    } finally {
-        await page.close();
-        if (!globalBrowser) await browser.close();
-    }
-});
 
 // Initialize browser on startup
 initBrowser();
