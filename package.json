@@ -1,12 +1,35 @@
 {
-  "name": "playwright-seo-audit",
-  "version": "1.0.0",
-  "main": "index.js",
+  "name": "playwright-schema-extractor",
+  "version": "2.0.0",
+  "description": "Advanced Playwright service for structured data and schema extraction",
+  "main": "src/index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "keywords": [
+    "playwright",
+    "schema-extraction",
+    "structured-data",
+    "seo",
+    "automation",
+    "microdata",
+    "json-ld",
+    "opengraph"
+  ],
+  "author": "Strudel Marketing",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "puppeteer": "^22.8.2"
+    "playwright": "^1.40.0",
+    "cors": "^2.8.5",
+    "body-parser": "^1.20.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
