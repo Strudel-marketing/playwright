@@ -2,11 +2,59 @@ const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
+const Ajv = require('ajv');
+const addFormats = require('ajv-formats');
+
+// Schema Validator
+class SmartSchemaValidator {
+    constructor() {
+        this.ajv = new Ajv({ allErrors: true, verbose: true, strict: false });
+        addFormats(this.ajv);
+        this.schemas = {
+            Person: {
+                type: 'object',
+                properties: {
+                    '@context': { const: 'https://schema.org' },
+                    '@type': { const: 'Person' },
+                    name: { type: 'string', minLength: 1 },
+                    url: { type: 'string', format: 'uri' },
+                    image: { type: 'string', format: 'uri' },
+                    jobTitle: { type: 'string' }
+                },
+                required: ['@context', '@type', 'name'],
+                additionalProperties: true
+            }
+        };
+    }
+    
+    validateSchema(data) {
+        const schemaType = data['@type'];
+        if (!schemaType) {
+            return { valid: false, errors: ['Missing @type'], score: 0 };
+        }
+        
+        const schema = this.schemas[schemaType];
+        if (!schema) {
+            return { valid: true, errors: [], warnings: [`Basic validation for ${schemaType}`], score: 70 };
+        }
+        
+        const validate = this.ajv.compile(schema);
+        const isValid = validate(data);
+        
+        return {
+            valid: isValid,
+            errors: (validate.errors || []).map(e => e.message),
+            warnings: [],
+            score: isValid ? 85 : 40
+        };
+    }
+}
 
 const SchemaValidator = require('./schema-validator');
 const schemaValidator = new SchemaValidator();
 
 const app = express();
+const schemaValidator = new SmartSchemaValidator();
 const PORT = process.env.PORT || 3000;
 
 // Middleware
@@ -1033,6 +1081,51 @@ app.post('/api/validate/schema', async (req, res) => {
 
 // Run cleanup every 24 hours
 setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
+
+// Schema Validation Endpoint
+app.post('/api/validate/schema', async (req, res) => {
+    const { url } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({ success: false, error: 'URL required' });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        const extractedData = await extractAllSchemas(page);
+        
+        const results = [];
+        if (extractedData.jsonLD) {
+            for (const schema of extractedData.jsonLD) {
+                if (schema['@type']) {
+                    const validation = schemaValidator.validateSchema(schema);
+                    results.push({
+                        type: schema['@type'],
+                        valid: validation.valid,
+                        score: validation.score,
+                        errors: validation.errors,
+                        warnings: validation.warnings || []
+                    });
+                }
+            }
+        }
+        
+        res.json({ success: true, url, schemas: results });
+        
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    } finally {
+        await page.close();
+        if (!globalBrowser) await browser.close();
+    }
+});
 
 // Initialize browser on startup
 initBrowser();
