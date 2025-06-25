@@ -50,9 +50,6 @@ class SmartSchemaValidator {
     }
 }
 
-const SchemaValidator = require('./schema-validator');
-const schemaValidator = new SchemaValidator();
-
 const app = express();
 const schemaValidator = new SmartSchemaValidator();
 const PORT = process.env.PORT || 3000;
