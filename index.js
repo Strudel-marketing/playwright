@@ -836,10 +836,12 @@ app.post('/api/screenshot', async (req, res) => {
         res.json({
             success: true,
             result: {
-                filename: screenshotOptions.path.split('/').pop(),
-                path: `file://${screenshotOptions.path}`,
-                url: url,
-                options: options
+                filename: filename,
+                url: `https://playwright.strudel.marketing/screenshots/${filename}`,
+                localPath: screenshotOptions.path,
+                originalUrl: url,
+                options: options,
+                expiresIn: '7 days'
             }
         });
         
