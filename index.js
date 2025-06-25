@@ -859,6 +859,42 @@ app.post('/api/screenshot', async (req, res) => {
     }
 });
 
+// Cleanup old screenshots (older than 7 days)
+function cleanupOldScreenshots() {
+    const fs = require('fs');
+    const path = require('path');
+    const screenshotsDir = '/app/screenshots';
+    
+    try {
+        if (fs.existsSync(screenshotsDir)) {
+            const files = fs.readdirSync(screenshotsDir);
+            const now = Date.now();
+            const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+            
+            files.forEach(file => {
+                const filePath = path.join(screenshotsDir, file);
+                const stats = fs.statSync(filePath);
+                
+                if (now - stats.mtime.getTime() > sevenDays) {
+                    fs.unlinkSync(filePath);
+                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error cleaning up screenshots:', error);
+    }
+}
+
+// Run cleanup every 24 hours
+setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
+
+// Initialize browser on startup
+initBrowser();
+
+// Clean up old screenshots on startup
+cleanupOldScreenshots();
+
 // Initialize browser on startup
 initBrowser();
 
