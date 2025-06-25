@@ -3,6 +3,9 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
 
+const SchemaValidator = require('./schema-validator');
+const schemaValidator = new SchemaValidator();
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
