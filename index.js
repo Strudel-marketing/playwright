@@ -688,9 +688,64 @@ app.post('/api/extract/quick-check', async (req, res) => {
     try {
         await page.goto(url, { waitUntil: 'networkidle' });
         
-        const quickCheck = await page.evaluate(() => {
-            const hasJsonLD = document.querySelectorAll('script[type="application/ld+json"]').length > 0;
-            const hasMicrodata
+    const quickCheck = await page.evaluate(() => {
+    const hasJsonLD = document.querySelectorAll('script[type="application/ld+json"]').length > 0;
+    const hasMicrodata = document.querySelectorAll('[itemscope]').length > 0;
+    const hasOpenGraph = document.querySelectorAll('meta[property^="og:"]').length > 0;
+    const hasTwitterCard = document.querySelectorAll('meta[name^="twitter:"]').length > 0;
+    const hasSchemaTypes = [];
+    
+    // Check for common schema types
+    const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+    jsonLDScripts.forEach(script => {
+        try {
+            const data = JSON.parse(script.textContent);
+            if (data['@type']) {
+                hasSchemaTypes.push(data['@type']);
+            } else if (Array.isArray(data)) {
+                data.forEach(item => {
+                    if (item['@type']) hasSchemaTypes.push(item['@type']);
+                });
+            }
+        } catch (e) {}
+    });
+    
+    return {
+        hasStructuredData: hasJsonLD || hasMicrodata,
+        hasJsonLD,
+        hasMicrodata,
+        hasOpenGraph,
+        hasTwitterCard,
+        schemaTypes: [...new Set(hasSchemaTypes)],
+        structuredDataScore: (hasJsonLD ? 40 : 0) + 
+                          (hasMicrodata ? 30 : 0) + 
+                          (hasOpenGraph ? 20 : 0) + 
+                          (hasTwitterCard ? 10 : 0)
+    };
+});
+
+res.json({
+    success: true,
+    url: url,
+    quickCheck: quickCheck,
+    recommendation: quickCheck.structuredDataScore < 50 ? 
+        'Consider adding more structured data markup' : 
+        'Good structured data implementation'
+});
+
+} catch (error) {
+    console.error('Quick check error:', error);
+    res.status(500).json({
+        success: false,
+        error: error.message
+    });
+} finally {
+    await page.close();
+    if (!globalBrowser) {
+        await browser.close();
+    }
+}
+});     
 
 // Screenshot endpoint
 app.post('/api/screenshot', async (req, res) => {
