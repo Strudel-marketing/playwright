@@ -17,8 +17,8 @@ RUN npx playwright install --with-deps
 COPY index.js ./
 
 # Create necessary directories with proper permissions
-RUN mkdir -p downloads tmp logs && \
-    chmod 777 downloads tmp logs
+RUN mkdir -p downloads tmp logs screenshots && \
+    chmod 777 downloads tmp logs screenshots
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
