@@ -889,6 +889,148 @@ function cleanupOldScreenshots() {
     }
 }
 
+// Advanced Schema Validation Endpoint
+app.post('/api/validate/schema', async (req, res) => {
+    const { url, validateAll = true } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        // Extract all schemas
+        const extractedData = await extractAllSchemas(page);
+        
+        const validationResults = {
+            url: url,
+            timestamp: new Date().toISOString(),
+            overallScore: 0,
+            schemasFound: extractedData.jsonLD.length + extractedData.microdata.length,
+            schemas: [],
+            summary: {
+                totalSchemas: 0,
+                validSchemas: 0,
+                errorsFound: 0,
+                warningsFound: 0
+            }
+        };
+        
+        // Validate JSON-LD schemas
+        if (extractedData.jsonLD && extractedData.jsonLD.length > 0) {
+            for (const schema of extractedData.jsonLD) {
+                if (schema['@type']) {
+                    const validation = schemaValidator.validateSchema(schema);
+                    
+                    validationResults.schemas.push({
+                        type: schema['@type'],
+                        format: 'JSON-LD',
+                        valid: validation.valid,
+                        score: validation.score,
+                        completeness: validation.completeness,
+                        authorityScore: validation.authorityScore || 0,
+                        errors: validation.errors,
+                        warnings: validation.warnings,
+                        recommendations: validation.recommendations,
+                        schema: validateAll ? schema : undefined
+                    });
+                    
+                    validationResults.summary.totalSchemas++;
+                    if (validation.valid) validationResults.summary.validSchemas++;
+                    validationResults.summary.errorsFound += validation.errors.length;
+                    validationResults.summary.warningsFound += validation.warnings.length;
+                }
+            }
+        }
+        
+        // Basic validation for microdata
+        if (extractedData.microdata && extractedData.microdata.length > 0) {
+            for (const microdata of extractedData.microdata) {
+                if (microdata.type) {
+                    const schemaType = microdata.type.split('/').pop();
+                    const convertedSchema = {
+                        '@context': 'https://schema.org',
+                        '@type': schemaType,
+                        ...microdata.properties
+                    };
+                    
+                    const validation = schemaValidator.validateSchema(convertedSchema);
+                    
+                    validationResults.schemas.push({
+                        type: schemaType,
+                        format: 'Microdata',
+                        valid: validation.valid,
+                        score: validation.score,
+                        completeness: validation.completeness,
+                        authorityScore: validation.authorityScore || 0,
+                        errors: validation.errors,
+                        warnings: validation.warnings,
+                        recommendations: validation.recommendations,
+                        schema: validateAll ? convertedSchema : undefined
+                    });
+                    
+                    validationResults.summary.totalSchemas++;
+                    if (validation.valid) validationResults.summary.validSchemas++;
+                    validationResults.summary.errorsFound += validation.errors.length;
+                    validationResults.summary.warningsFound += validation.warnings.length;
+                }
+            }
+        }
+        
+        // Calculate overall score
+        if (validationResults.schemas.length > 0) {
+            const avgScore = validationResults.schemas.reduce((sum, schema) => sum + schema.score, 0) / validationResults.schemas.length;
+            validationResults.overallScore = Math.round(avgScore);
+        }
+        
+        // Add general recommendations
+        validationResults.generalRecommendations = [];
+        
+        if (validationResults.summary.totalSchemas === 0) {
+            validationResults.generalRecommendations.push('No structured data found. Consider adding Schema.org markup for better SEO.');
+        } else if (validationResults.summary.validSchemas < validationResults.summary.totalSchemas) {
+            validationResults.generalRecommendations.push('Some schemas have validation errors. Fix them for better search engine understanding.');
+        }
+        
+        if (Object.keys(extractedData.openGraph).length === 0) {
+            validationResults.generalRecommendations.push('Add Open Graph meta tags for better social media sharing.');
+        }
+        
+        if (Object.keys(extractedData.twitterCard).length === 0) {
+            validationResults.generalRecommendations.push('Add Twitter Card meta tags for better Twitter sharing.');
+        }
+        
+        res.json({
+            success: true,
+            result: validationResults
+        });
+        
+    } catch (error) {
+        console.error('Schema validation error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            url: url
+        });
+    } finally {
+        await page.close();
+        if (!globalBrowser) {
+            await browser.close();
+        }
+    }
+});
+
 // Run cleanup every 24 hours
 setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
 
