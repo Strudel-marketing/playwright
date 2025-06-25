@@ -695,20 +695,46 @@ app.post('/api/extract/quick-check', async (req, res) => {
     const hasTwitterCard = document.querySelectorAll('meta[name^="twitter:"]').length > 0;
     const hasSchemaTypes = [];
     
-    // Check for common schema types
-    const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-    jsonLDScripts.forEach(script => {
-        try {
-            const data = JSON.parse(script.textContent);
-            if (data['@type']) {
-                hasSchemaTypes.push(data['@type']);
-            } else if (Array.isArray(data)) {
-                data.forEach(item => {
-                    if (item['@type']) hasSchemaTypes.push(item['@type']);
+    // Check for common schema types - improved version
+const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+jsonLDScripts.forEach(script => {
+    try {
+        const data = JSON.parse(script.textContent);
+        
+        // Function to extract types recursively
+        function extractTypes(obj) {
+            if (!obj) return;
+            
+            if (typeof obj === 'object') {
+                if (obj['@type']) {
+                    if (Array.isArray(obj['@type'])) {
+                        hasSchemaTypes.push(...obj['@type']);
+                    } else {
+                        hasSchemaTypes.push(obj['@type']);
+                    }
+                }
+                
+                // Check all properties recursively
+                Object.values(obj).forEach(value => {
+                    if (Array.isArray(value)) {
+                        value.forEach(item => extractTypes(item));
+                    } else if (typeof value === 'object') {
+                        extractTypes(value);
+                    }
                 });
             }
-        } catch (e) {}
-    });
+        }
+        
+        if (Array.isArray(data)) {
+            data.forEach(item => extractTypes(item));
+        } else {
+            extractTypes(data);
+        }
+        
+    } catch (e) {
+        console.log('Error parsing JSON-LD:', e);
+    }
+});
     
     return {
         hasStructuredData: hasJsonLD || hasMicrodata,
