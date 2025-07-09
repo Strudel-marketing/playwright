@@ -1,528 +1,4 @@
-// Schema Extraction Endpoint
-app.post('/api/extract/schema', async (req, res) => {
-    const { url, options = {} } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        const extractedData = await extractAllSchemas(page, options);
-        
-        res.json({
-            success: true,
-            url: url,
-            timestamp: new Date().toISOString(),
-            data: extractedData
-        });
-        
-    } catch (error) {
-        console.error('Schema extraction error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            url: url
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Extract all schema types from page
-async function extractAllSchemas(page, options = {}) {
-    const results = {};
-    
-    // 1. JSON-LD Structured Data
-    try {
-        results.jsonLD = await page.evaluate(() => {
-            const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-            return scripts.map(script => {
-                try {
-                    return JSON.parse(script.textContent);
-                } catch (e) {
-                    return null;
-                }
-            }).filter(Boolean);
-        });
-    } catch (e) {
-        results.jsonLD = [];
-    }
-    
-    // 2. Microdata
-    try {
-        results.microdata = await page.evaluate(() => {
-            const items = Array.from(document.querySelectorAll('[itemscope]'));
-            return items.map(item => {
-                const type = item.getAttribute('itemtype');
-                const properties = {};
-                
-                const props = Array.from(item.querySelectorAll('[itemprop]'));
-                props.forEach(prop => {
-                    const name = prop.getAttribute('itemprop');
-                    const value = prop.getAttribute('content') || 
-                                 prop.getAttribute('datetime') ||
-                                 prop.textContent.trim();
-                    properties[name] = value;
-                });
-                
-                return { type, properties };
-            });
-        });
-    } catch (e) {
-        results.microdata = [];
-    }
-    
-    // 3. Open Graph
-    try {
-        results.openGraph = await page.evaluate(() => {
-            const ogTags = Array.from(document.querySelectorAll('meta[property^="og:"]'));
-            const og = {};
-            ogTags.forEach(tag => {
-                const property = tag.getAttribute('property').replace('og:', '');
-                const content = tag.getAttribute('content');
-                og[property] = content;
-            });
-            return og;
-        });
-    } catch (e) {
-        results.openGraph = {};
-    }
-    
-    // 4. Twitter Cards
-    try {
-        results.twitterCard = await page.evaluate(() => {
-            const twitterTags = Array.from(document.querySelectorAll('meta[name^="twitter:"]'));
-            const twitter = {};
-            twitterTags.forEach(tag => {
-                const name = tag.getAttribute('name').replace('twitter:', '');
-                const content = tag.getAttribute('content');
-                twitter[name] = content;
-            });
-            return twitter;
-        });
-    } catch (e) {
-        results.twitterCard = {};
-    }
-    
-    // 5. Basic SEO Meta
-    try {
-        results.seoMeta = await page.evaluate(() => ({
-            title: document.title,
-            description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
-            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content'),
-            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
-            robots: document.querySelector('meta[name="robots"]')?.getAttribute('content')
-        }));
-    } catch (e) {
-        results.seoMeta = {};
-    }
-    
-    return results;
-}
-
-// Quick Schema Check
-app.post('/api/extract/quick-check', async (req, res) => {
-    const { url } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-    const quickCheck = await page.evaluate(() => {
-    const hasJsonLD = document.querySelectorAll('script[type="application/ld+json"]').length > 0;
-    const hasMicrodata = document.querySelectorAll('[itemscope]').length > 0;
-    const hasOpenGraph = document.querySelectorAll('meta[property^="og:"]').length > 0;
-    const hasTwitterCard = document.querySelectorAll('meta[name^="twitter:"]').length > 0;
-    const hasSchemaTypes = [];
-    
-    // Check for common schema types - improved version
-    const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-    jsonLDScripts.forEach(script => {
-        try {
-            const data = JSON.parse(script.textContent);
-        
-            // Function to extract types recursively
-            function extractTypes(obj) {
-                if (!obj) return;
-                
-                if (typeof obj === 'object') {
-                    if (obj['@type']) {
-                        if (Array.isArray(obj['@type'])) {
-                            hasSchemaTypes.push(...obj['@type']);
-                        } else {
-                            hasSchemaTypes.push(obj['@type']);
-                        }
-                    }
-                    
-                    // Check all properties recursively
-                    Object.values(obj).forEach(value => {
-                        if (Array.isArray(value)) {
-                            value.forEach(item => extractTypes(item));
-                        } else if (typeof value === 'object') {
-                            extractTypes(value);
-                        }
-                    });
-            }
-        }
-        
-        if (Array.isArray(data)) {
-            data.forEach(item => extractTypes(item));
-        } else {
-            extractTypes(data);
-        }
-        
-    } catch (e) {
-        console.log('Error parsing JSON-LD:', e);
-    }
-});
-    
-    return {
-        hasStructuredData: hasJsonLD || hasMicrodata,
-        hasJsonLD,
-        hasMicrodata,
-        hasOpenGraph,
-        hasTwitterCard,
-        schemaTypes: [...new Set(hasSchemaTypes)],
-        structuredDataScore: (hasJsonLD ? 40 : 0) + 
-                          (hasMicrodata ? 30 : 0) + 
-                          (hasOpenGraph ? 20 : 0) + 
-                          (hasTwitterCard ? 10 : 0)
-    };
-});
-
-res.json({
-    success: true,
-    url: url,
-    quickCheck: quickCheck,
-    recommendation: quickCheck.structuredDataScore < 50 ? 
-        'Consider adding more structured data markup' : 
-        'Good structured data implementation'
-});
-
-} catch (error) {
-    console.error('Quick check error:', error);
-    res.status(500).json({
-        success: false,
-        error: error.message
-    });
-} finally {
-    await page.close();
-    if (!globalBrowser) {
-        await browser.close();
-    }
-}
-});     
-
-// Screenshot endpoint
-app.post('/api/screenshot', async (req, res) => {
-    const { url, options = {} } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        // Set viewport if specified
-        if (options.viewport) {
-            await page.setViewportSize(options.viewport);
-        }
-        
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        // Block popups if requested
-        if (options.blockPopups) {
-            await page.addInitScript(() => {
-                window.alert = () => {};
-                window.confirm = () => true;
-                window.prompt = () => '';
-            });
-        }
-        
-        const filename = `screenshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
-            const screenshotOptions = {
-            path: `/app/screenshots/${filename}`,
-            fullPage: options.fullPage !== false,
-            ...options
-        };
-        if (options.selector) {
-            const element = await page.$(options.selector);
-            if (element) {
-                await element.screenshot(screenshotOptions);
-            } else {
-                throw new Error(`Element with selector "${options.selector}" not found`);
-            }
-        } else {
-            await page.screenshot(screenshotOptions);
-        }
-        
-        res.json({
-            success: true,
-            result: {
-                filename: filename,
-                url: `https://playwright.strudel.marketing/screenshots/${filename}`,
-                localPath: screenshotOptions.path,
-                originalUrl: url,
-                options: options,
-                expiresIn: '7 days'
-            }
-        });
-        
-    } catch (error) {
-        console.error('Screenshot error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Cleanup old screenshots (older than 7 days)
-function cleanupOldScreenshots() {
-    const fs = require('fs');
-    const path = require('path');
-    const screenshotsDir = '/app/screenshots';
-    
-    try {
-        if (fs.existsSync(screenshotsDir)) {
-            const files = fs.readdirSync(screenshotsDir);
-            const now = Date.now();
-            const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-            
-            files.forEach(file => {
-                const filePath = path.join(screenshotsDir, file);
-                const stats = fs.statSync(filePath);
-                
-                if (now - stats.mtime.getTime() > sevenDays) {
-                    fs.unlinkSync(filePath);
-                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Error cleaning up screenshots:', error);
-    }
-}
-
-// Advanced Schema Validation Endpoint
-app.post('/api/validate/schema', async (req, res) => {
-    const { url, validateAll = true } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        // Extract all schemas
-        const extractedData = await extractAllSchemas(page);
-        
-        const validationResults = {
-            url: url,
-            timestamp: new Date().toISOString(),
-            overallScore: 0,
-            schemasFound: extractedData.jsonLD.length + extractedData.microdata.length,
-            schemas: [],
-            summary: {
-                totalSchemas: 0,
-                validSchemas: 0,
-                errorsFound: 0,
-                warningsFound: 0
-            }
-        };
-        
-        // Validate JSON-LD schemas
-        if (extractedData.jsonLD && extractedData.jsonLD.length > 0) {
-            for (const schema of extractedData.jsonLD) {
-                if (schema['@type']) {
-                    const validation = schemaValidator.validateSchema(schema);
-                    
-                    validationResults.schemas.push({
-                        type: schema['@type'],
-                        format: 'JSON-LD',
-                        valid: validation.valid,
-                        score: validation.score,
-                        completeness: validation.completeness,
-                        authorityScore: validation.authorityScore || 0,
-                        errors: validation.errors,
-                        warnings: validation.warnings,
-                        recommendations: validation.recommendations,
-                        schema: validateAll ? schema : undefined
-                    });
-                    
-                    validationResults.summary.totalSchemas++;
-                    if (validation.valid) validationResults.summary.validSchemas++;
-                    validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += validation.warnings.length;
-                }
-            }
-        }
-        
-        // Basic validation for microdata
-        if (extractedData.microdata && extractedData.microdata.length > 0) {
-            for (const microdata of extractedData.microdata) {
-                if (microdata.type) {
-                    const schemaType = microdata.type.split('/').pop();
-                    const convertedSchema = {
-                        '@context': 'https://schema.org',
-                        '@type': schemaType,
-                        ...microdata.properties
-                    };
-                    
-                    const validation = schemaValidator.validateSchema(convertedSchema);
-                    
-                    validationResults.schemas.push({
-                        type: schemaType,
-                        format: 'Microdata',
-                        valid: validation.valid,
-                        score: validation.score,
-                        completeness: validation.completeness,
-                        authorityScore: validation.authorityScore || 0,
-                        errors: validation.errors,
-                        warnings: validation.warnings,
-                        recommendations: validation.recommendations,
-                        schema: validateAll ? convertedSchema : undefined
-                    });
-                    
-                    validationResults.summary.totalSchemas++;
-                    if (validation.valid) validationResults.summary.validSchemas++;
-                    validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += validation.warnings.length;
-                }
-            }
-        }
-        
-        // Calculate overall score
-        if (validationResults.schemas.length > 0) {
-            const avgScore = validationResults.schemas.reduce((sum, schema) => sum + schema.score, 0) / validationResults.schemas.length;
-            validationResults.overallScore = Math.round(avgScore);
-        }
-        
-        // Add general recommendations
-        validationResults.generalRecommendations = [];
-        
-        if (validationResults.summary.totalSchemas === 0) {
-            validationResults.generalRecommendations.push('No structured data found. Consider adding Schema.org markup for better SEO.');
-        } else if (validationResults.summary.validSchemas < validationResults.summary.totalSchemas) {
-            validationResults.generalRecommendations.push('Some schemas have validation errors. Fix them for better search engine understanding.');
-        }
-        
-        if (Object.keys(extractedData.openGraph).length === 0) {
-            validationResults.generalRecommendations.push('Add Open Graph meta tags for better social media sharing.');
-        }
-        
-        if (Object.keys(extractedData.twitterCard).length === 0) {
-            validationResults.generalRecommendations.push('Add Twitter Card meta tags for better Twitter sharing.');
-        }
-        
-        res.json({
-            success: true,
-            result: validationResults
-        });
-        
-    } catch (error) {
-        console.error('Schema validation error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            url: url
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Run cleanup every 24 hours
-setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
-
-// Initialize browser on startup
-initBrowser();
-
-// Clean up old screenshots on startup
-cleanupOldScreenshots();
-
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Playwright Universal Automation API running on port ${PORT}`);
-    console.log(`📊 Available endpoints:`);
-    console.log(`   GET  /health - Service health check`);
-    console.log(`   POST /api/seo/audit - Enhanced SEO analysis with readability, keywords & freshness`);
-    console.log(`   POST /api/extract/schema - Schema extraction`);
-    console.log(`   POST /api/extract/quick-check - Quick structured data check`);
-    console.log(`   POST /api/screenshot - Advanced screenshots`);
-    console.log(`   POST /api/validate/schema - Schema validation`);
-});
-
-// Cleanup on exit
-process.on('SIGTERM', async () => {
-    if (globalBrowser) {
-        await globalBrowser.close();
-    }
-    process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-    if (globalBrowser) {
-        await globalBrowser.close();
-    }
-    process.exit(0);
-});const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
@@ -1596,3 +1072,542 @@ function calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData) {
         breakdown
     };
 }
+
+// Legacy function - now replaced by calculateEnhancedSEOScore
+function calculateSEOScore(seoData, performanceMetrics) {
+    // This function is kept for backward compatibility
+    return calculateEnhancedSEOScore(seoData, performanceMetrics, {
+        readabilityScore: 60,
+        keywordDensity: 0,
+        contentFreshness: 'unknown',
+        statusChecks: { is_4xx_code: false, is_5xx_code: false, is_redirect: false },
+        clickDepth: null
+    });
+}
+
+// Extract all schema types from page
+async function extractAllSchemas(page, options = {}) {
+    const results = {};
+    
+    // 1. JSON-LD Structured Data
+    try {
+        results.jsonLD = await page.evaluate(() => {
+            const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+            return scripts.map(script => {
+                try {
+                    return JSON.parse(script.textContent);
+                } catch (e) {
+                    return null;
+                }
+            }).filter(Boolean);
+        });
+    } catch (e) {
+        results.jsonLD = [];
+    }
+    
+    // 2. Microdata
+    try {
+        results.microdata = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('[itemscope]'));
+            return items.map(item => {
+                const type = item.getAttribute('itemtype');
+                const properties = {};
+                
+                const props = Array.from(item.querySelectorAll('[itemprop]'));
+                props.forEach(prop => {
+                    const name = prop.getAttribute('itemprop');
+                    const value = prop.getAttribute('content') || 
+                                 prop.getAttribute('datetime') ||
+                                 prop.textContent.trim();
+                    properties[name] = value;
+                });
+                
+                return { type, properties };
+            });
+        });
+    } catch (e) {
+        results.microdata = [];
+    }
+    
+    // 3. Open Graph
+    try {
+        results.openGraph = await page.evaluate(() => {
+            const ogTags = Array.from(document.querySelectorAll('meta[property^="og:"]'));
+            const og = {};
+            ogTags.forEach(tag => {
+                const property = tag.getAttribute('property').replace('og:', '');
+                const content = tag.getAttribute('content');
+                og[property] = content;
+            });
+            return og;
+        });
+    } catch (e) {
+        results.openGraph = {};
+    }
+    
+    // 4. Twitter Cards
+    try {
+        results.twitterCard = await page.evaluate(() => {
+            const twitterTags = Array.from(document.querySelectorAll('meta[name^="twitter:"]'));
+            const twitter = {};
+            twitterTags.forEach(tag => {
+                const name = tag.getAttribute('name').replace('twitter:', '');
+                const content = tag.getAttribute('content');
+                twitter[name] = content;
+            });
+            return twitter;
+        });
+    } catch (e) {
+        results.twitterCard = {};
+    }
+    
+    // 5. Basic SEO Meta
+    try {
+        results.seoMeta = await page.evaluate(() => ({
+            title: document.title,
+            description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
+            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content'),
+            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+            robots: document.querySelector('meta[name="robots"]')?.getAttribute('content')
+        }));
+    } catch (e) {
+        results.seoMeta = {};
+    }
+    
+    return results;
+}
+
+// Schema Extraction Endpoint
+app.post('/api/extract/schema', async (req, res) => {
+    const { url, options = {} } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        const extractedData = await extractAllSchemas(page, options);
+        
+        res.json({
+            success: true,
+            url: url,
+            timestamp: new Date().toISOString(),
+            data: extractedData
+        });
+        
+    } catch (error) {
+        console.error('Schema extraction error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            url: url
+        });
+    } finally {
+        await page.close();
+        if (!globalBrowser) {
+            await browser.close();
+        }
+    }
+});
+
+// Quick Schema Check
+app.post('/api/extract/quick-check', async (req, res) => {
+    const { url } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        const quickCheck = await page.evaluate(() => {
+            const hasJsonLD = document.querySelectorAll('script[type="application/ld+json"]').length > 0;
+            const hasMicrodata = document.querySelectorAll('[itemscope]').length > 0;
+            const hasOpenGraph = document.querySelectorAll('meta[property^="og:"]').length > 0;
+            const hasTwitterCard = document.querySelectorAll('meta[name^="twitter:"]').length > 0;
+            const hasSchemaTypes = [];
+            
+            // Check for common schema types - improved version
+            const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+            jsonLDScripts.forEach(script => {
+                try {
+                    const data = JSON.parse(script.textContent);
+                
+                    // Function to extract types recursively
+                    function extractTypes(obj) {
+                        if (!obj) return;
+                        
+                        if (typeof obj === 'object') {
+                            if (obj['@type']) {
+                                if (Array.isArray(obj['@type'])) {
+                                    hasSchemaTypes.push(...obj['@type']);
+                                } else {
+                                    hasSchemaTypes.push(obj['@type']);
+                                }
+                            }
+                            
+                            // Check all properties recursively
+                            Object.values(obj).forEach(value => {
+                                if (Array.isArray(value)) {
+                                    value.forEach(item => extractTypes(item));
+                                } else if (typeof value === 'object') {
+                                    extractTypes(value);
+                                }
+                            });
+                        }
+                    }
+                
+                    if (Array.isArray(data)) {
+                        data.forEach(item => extractTypes(item));
+                    } else {
+                        extractTypes(data);
+                    }
+                    
+                } catch (e) {
+                    console.log('Error parsing JSON-LD:', e);
+                }
+            });
+            
+            return {
+                hasStructuredData: hasJsonLD || hasMicrodata,
+                hasJsonLD,
+                hasMicrodata,
+                hasOpenGraph,
+                hasTwitterCard,
+                schemaTypes: [...new Set(hasSchemaTypes)],
+                structuredDataScore: (hasJsonLD ? 40 : 0) + 
+                                  (hasMicrodata ? 30 : 0) + 
+                                  (hasOpenGraph ? 20 : 0) + 
+                                  (hasTwitterCard ? 10 : 0)
+            };
+        });
+
+        res.json({
+            success: true,
+            url: url,
+            quickCheck: quickCheck,
+            recommendation: quickCheck.structuredDataScore < 50 ? 
+                'Consider adding more structured data markup' : 
+                'Good structured data implementation'
+        });
+
+    } catch (error) {
+        console.error('Quick check error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    } finally {
+        await page.close();
+        if (!globalBrowser) {
+            await browser.close();
+        }
+    }
+});     
+
+// Screenshot endpoint
+app.post('/api/screenshot', async (req, res) => {
+    const { url, options = {} } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        // Set viewport if specified
+        if (options.viewport) {
+            await page.setViewportSize(options.viewport);
+        }
+        
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        // Block popups if requested
+        if (options.blockPopups) {
+            await page.addInitScript(() => {
+                window.alert = () => {};
+                window.confirm = () => true;
+                window.prompt = () => '';
+            });
+        }
+        
+        const filename = `screenshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
+        const screenshotOptions = {
+            path: `/app/screenshots/${filename}`,
+            fullPage: options.fullPage !== false,
+            ...options
+        };
+        
+        if (options.selector) {
+            const element = await page.$(options.selector);
+            if (element) {
+                await element.screenshot(screenshotOptions);
+            } else {
+                throw new Error(`Element with selector "${options.selector}" not found`);
+            }
+        } else {
+            await page.screenshot(screenshotOptions);
+        }
+        
+        res.json({
+            success: true,
+            result: {
+                filename: filename,
+                url: `https://playwright.strudel.marketing/screenshots/${filename}`,
+                localPath: screenshotOptions.path,
+                originalUrl: url,
+                options: options,
+                expiresIn: '7 days'
+            }
+        });
+        
+    } catch (error) {
+        console.error('Screenshot error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    } finally {
+        await page.close();
+        if (!globalBrowser) {
+            await browser.close();
+        }
+    }
+});
+
+// Cleanup old screenshots (older than 7 days)
+function cleanupOldScreenshots() {
+    const fs = require('fs');
+    const path = require('path');
+    const screenshotsDir = '/app/screenshots';
+    
+    try {
+        if (fs.existsSync(screenshotsDir)) {
+            const files = fs.readdirSync(screenshotsDir);
+            const now = Date.now();
+            const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+            
+            files.forEach(file => {
+                const filePath = path.join(screenshotsDir, file);
+                const stats = fs.statSync(filePath);
+                
+                if (now - stats.mtime.getTime() > sevenDays) {
+                    fs.unlinkSync(filePath);
+                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error cleaning up screenshots:', error);
+    }
+}
+
+// Advanced Schema Validation Endpoint
+app.post('/api/validate/schema', async (req, res) => {
+    const { url, validateAll = true } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        // Extract all schemas
+        const extractedData = await extractAllSchemas(page);
+        
+        const validationResults = {
+            url: url,
+            timestamp: new Date().toISOString(),
+            overallScore: 0,
+            schemasFound: extractedData.jsonLD.length + extractedData.microdata.length,
+            schemas: [],
+            summary: {
+                totalSchemas: 0,
+                validSchemas: 0,
+                errorsFound: 0,
+                warningsFound: 0
+            }
+        };
+        
+        // Validate JSON-LD schemas
+        if (extractedData.jsonLD && extractedData.jsonLD.length > 0) {
+            for (const schema of extractedData.jsonLD) {
+                if (schema['@type']) {
+                    const validation = schemaValidator.validateSchema(schema);
+                    
+                    validationResults.schemas.push({
+                        type: schema['@type'],
+                        format: 'JSON-LD',
+                        valid: validation.valid,
+                        score: validation.score,
+                        completeness: validation.completeness,
+                        authorityScore: validation.authorityScore || 0,
+                        errors: validation.errors,
+                        warnings: validation.warnings,
+                        recommendations: validation.recommendations,
+                        schema: validateAll ? schema : undefined
+                    });
+                    
+                    validationResults.summary.totalSchemas++;
+                    if (validation.valid) validationResults.summary.validSchemas++;
+                    validationResults.summary.errorsFound += validation.errors.length;
+                    validationResults.summary.warningsFound += validation.warnings.length;
+                }
+            }
+        }
+        
+        // Basic validation for microdata
+        if (extractedData.microdata && extractedData.microdata.length > 0) {
+            for (const microdata of extractedData.microdata) {
+                if (microdata.type) {
+                    const schemaType = microdata.type.split('/').pop();
+                    const convertedSchema = {
+                        '@context': 'https://schema.org',
+                        '@type': schemaType,
+                        ...microdata.properties
+                    };
+                    
+                    const validation = schemaValidator.validateSchema(convertedSchema);
+                    
+                    validationResults.schemas.push({
+                        type: schemaType,
+                        format: 'Microdata',
+                        valid: validation.valid,
+                        score: validation.score,
+                        completeness: validation.completeness,
+                        authorityScore: validation.authorityScore || 0,
+                        errors: validation.errors,
+                        warnings: validation.warnings,
+                        recommendations: validation.recommendations,
+                        schema: validateAll ? convertedSchema : undefined
+                    });
+                    
+                    validationResults.summary.totalSchemas++;
+                    if (validation.valid) validationResults.summary.validSchemas++;
+                    validationResults.summary.errorsFound += validation.errors.length;
+                    validationResults.summary.warningsFound += validation.warnings.length;
+                }
+            }
+        }
+        
+        // Calculate overall score
+        if (validationResults.schemas.length > 0) {
+            const avgScore = validationResults.schemas.reduce((sum, schema) => sum + schema.score, 0) / validationResults.schemas.length;
+            validationResults.overallScore = Math.round(avgScore);
+        }
+        
+        // Add general recommendations
+        validationResults.generalRecommendations = [];
+        
+        if (validationResults.summary.totalSchemas === 0) {
+            validationResults.generalRecommendations.push('No structured data found. Consider adding Schema.org markup for better SEO.');
+        } else if (validationResults.summary.validSchemas < validationResults.summary.totalSchemas) {
+            validationResults.generalRecommendations.push('Some schemas have validation errors. Fix them for better search engine understanding.');
+        }
+        
+        if (Object.keys(extractedData.openGraph).length === 0) {
+            validationResults.generalRecommendations.push('Add Open Graph meta tags for better social media sharing.');
+        }
+        
+        if (Object.keys(extractedData.twitterCard).length === 0) {
+            validationResults.generalRecommendations.push('Add Twitter Card meta tags for better Twitter sharing.');
+        }
+        
+        res.json({
+            success: true,
+            result: validationResults
+        });
+        
+    } catch (error) {
+        console.error('Schema validation error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            url: url
+        });
+    } finally {
+        await page.close();
+        if (!globalBrowser) {
+            await browser.close();
+        }
+    }
+});
+
+// Run cleanup every 24 hours
+setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
+
+// Initialize browser on startup
+initBrowser();
+
+// Clean up old screenshots on startup
+cleanupOldScreenshots();
+
+// Start server
+app.listen(PORT, () => {
+    console.log(`🚀 Playwright Universal Automation API running on port ${PORT}`);
+    console.log(`📊 Available endpoints:`);
+    console.log(`   GET  /health - Service health check`);
+    console.log(`   POST /api/seo/audit - Enhanced SEO analysis with readability, keywords & freshness`);
+    console.log(`   POST /api/extract/schema - Schema extraction`);
+    console.log(`   POST /api/extract/quick-check - Quick structured data check`);
+    console.log(`   POST /api/screenshot - Advanced screenshots`);
+    console.log(`   POST /api/validate/schema - Schema validation`);
+});
+
+// Cleanup on exit
+process.on('SIGTERM', async () => {
+    if (globalBrowser) {
+        await globalBrowser.close();
+    }
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    if (globalBrowser) {
+        await globalBrowser.close();
+    }
+    process.exit(0);
+});
