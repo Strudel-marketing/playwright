@@ -984,7 +984,7 @@ app.post('/api/seo/audit', async (req, res) => {
         });
         
         // Calculate comprehensive SEO score with new factors
-        const seoScore = calculateEnhancedSEOScore(seoData, performanceMetrics, {
+        const enhancedSeoScore = calculateEnhancedSEOScore(seoData, performanceMetrics, {
             readabilityScore: readabilityScore.score,
             keywordDensity: keywordDensity.topKeywords.length > 0 ? keywordDensity.topKeywords[0].density : 0,
             contentFreshness: contentFreshness.category,
@@ -998,10 +998,10 @@ app.post('/api/seo/audit', async (req, res) => {
             statusCode: statusCode,
             
             // Score and grades
-            score: seoScore.total,
-            grade: seoScore.grade,
-            issues: seoScore.issues,
-            recommendations: seoScore.recommendations,
+            score: enhancedSeoScore.total,
+            grade: enhancedSeoScore.grade,
+            issues: enhancedSeoScore.issues,
+            recommendations: enhancedSeoScore.recommendations,
             
             // Basic SEO data
             seoData: seoData,
