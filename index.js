@@ -1316,7 +1316,7 @@ app.post('/api/seo/audit', async (req, res) => {
                     no_image_alt: document.querySelectorAll('img:not([alt]), img[alt=""]').length > 0,
                     broken_links: []
                 },
-                _contentData: seoData
+                _contentData: contentData
             };
         });
         
