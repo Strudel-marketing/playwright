@@ -1430,6 +1430,173 @@ app.post('/api/seo/audit', async (req, res) => {
     }
 });
 
+// Quick check endpoint - simple structured data check
+app.get('/api/extract/quick-check', async (req, res) => {
+    const { url } = req.query;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL parameter is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        await page.goto(url, { waitUntil: 'networkidle' });
+        
+        const quickCheckData = await page.evaluate(() => {
+            const results = {
+                hasJsonLD: false,
+                hasMicrodata: false,
+                hasOpenGraph: false,
+                hasTwitterCard: false,
+                schemaTypes: []
+            };
+            
+            // Check JSON-LD
+            const jsonLDScripts = document.querySelectorAll('script[type="application/ld+json"]');
+            if (jsonLDScripts.length > 0) {
+                results.hasJsonLD = true;
+                
+                jsonLDScripts.forEach(script => {
+                    try {
+                        const data = JSON.parse(script.textContent);
+                        
+                        function extractTypes(obj) {
+                            if (!obj) return;
+                            
+                            if (obj['@type']) {
+                                if (Array.isArray(obj['@type'])) {
+                                    obj['@type'].forEach(type => {
+                                        if (!results.schemaTypes.includes(type)) {
+                                            results.schemaTypes.push(type);
+                                        }
+                                    });
+                                } else {
+                                    if (!results.schemaTypes.includes(obj['@type'])) {
+                                        results.schemaTypes.push(obj['@type']);
+                                    }
+                                }
+                            }
+                            
+                            // Check nested objects
+                            Object.values(obj).forEach(value => {
+                                if (typeof value === 'object' && value !== null) {
+                                    if (Array.isArray(value)) {
+                                        value.forEach(item => extractTypes(item));
+                                    } else {
+                                        extractTypes(value);
+                                    }
+                                }
+                            });
+                        }
+                        
+                        if (Array.isArray(data)) {
+                            data.forEach(item => extractTypes(item));
+                        } else {
+                            extractTypes(data);
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                });
+            }
+            
+            // Check Microdata
+            const microdataItems = document.querySelectorAll('[itemscope]');
+            if (microdataItems.length > 0) {
+                results.hasMicrodata = true;
+                
+                microdataItems.forEach(item => {
+                    const itemType = item.getAttribute('itemtype');
+                    if (itemType) {
+                        const typeName = itemType.split('/').pop();
+                        if (!results.schemaTypes.includes(typeName)) {
+                            results.schemaTypes.push(typeName);
+                        }
+                    }
+                });
+            }
+            
+            // Check Open Graph
+            const ogTags = document.querySelectorAll('meta[property^="og:"]');
+            results.hasOpenGraph = ogTags.length > 0;
+            
+            // Check Twitter Card
+            const twitterTags = document.querySelectorAll('meta[name^="twitter:"]');
+            results.hasTwitterCard = twitterTags.length > 0;
+            
+            return results;
+        });
+        
+        // Calculate structured data score
+        let structuredDataScore = 0;
+        
+        if (quickCheckData.hasJsonLD) structuredDataScore += 40;
+        if (quickCheckData.hasMicrodata) structuredDataScore += 20;
+        if (quickCheckData.hasOpenGraph) structuredDataScore += 15;
+        if (quickCheckData.hasTwitterCard) structuredDataScore += 10;
+        if (quickCheckData.schemaTypes.length > 0) structuredDataScore += 15;
+        
+        // Bonus for multiple schema types
+        if (quickCheckData.schemaTypes.length >= 3) structuredDataScore += 10;
+        if (quickCheckData.schemaTypes.length >= 5) structuredDataScore += 10;
+        
+        structuredDataScore = Math.min(100, structuredDataScore);
+        
+        // Generate recommendation
+        let recommendation = '';
+        if (structuredDataScore >= 80) {
+            recommendation = 'Excellent structured data implementation';
+        } else if (structuredDataScore >= 60) {
+            recommendation = 'Good structured data implementation';
+        } else if (structuredDataScore >= 40) {
+            recommendation = 'Basic structured data found, consider improvements';
+        } else if (structuredDataScore >= 20) {
+            recommendation = 'Limited structured data, significant improvements needed';
+        } else {
+            recommendation = 'No structured data found, implementation recommended';
+        }
+        
+        const quickCheck = {
+            hasStructuredData: quickCheckData.hasJsonLD || quickCheckData.hasMicrodata,
+            hasJsonLD: quickCheckData.hasJsonLD,
+            hasMicrodata: quickCheckData.hasMicrodata,
+            hasOpenGraph: quickCheckData.hasOpenGraph,
+            hasTwitterCard: quickCheckData.hasTwitterCard,
+            schemaTypes: quickCheckData.schemaTypes,
+            structuredDataScore
+        };
+        
+        res.json([{
+            success: true,
+            url,
+            quickCheck,
+            recommendation
+        }]);
+
+    } catch (error) {
+        console.error('Quick check error:', error);
+        res.status(500).json([{
+            success: false,
+            url,
+            error: 'Failed to perform quick check',
+            details: error.message
+        }]);
+    } finally {
+        if (page) {
+            await page.close();
+        }
+    }
+});
+
 // Schema validation endpoint
 app.post('/api/schema/validate', async (req, res) => {
     const { data, schemaType } = req.body;
