@@ -1376,7 +1376,7 @@ app.post('/api/seo/audit', async (req, res) => {
         delete seoData._contentData;
 
         // Build comprehensive response
-        const response = {
+        const apiResponse = {
             success: true,
             data: {
                 url: url,
@@ -1401,7 +1401,7 @@ app.post('/api/seo/audit', async (req, res) => {
 
         // Add debug information if detailed analysis requested
         if (detailed) {
-            response.data.debug = {
+            apiResponse.data.debug = {
                 metaTagsExtracted: Object.keys(metaTags).length,
                 contentExtractionMethod: 'advanced-content-area-detection',
                 readabilityLanguage: readabilityScore.details ? 'detected' : 'unknown',
@@ -1414,7 +1414,7 @@ app.post('/api/seo/audit', async (req, res) => {
             };
         }
 
-        res.json(response);
+        res.json(apiResponse);
 
     } catch (error) {
         console.error('SEO Audit Error:', error);
