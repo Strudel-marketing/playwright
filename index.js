@@ -653,73 +653,8 @@ app.post('/api/seo/audit', async (req, res) => {
             };
         });
         
-        // חילוץ תוכן ראשי וספירת מילים מדויקת
-        const contentData = await page.evaluate(() => {
-            const contentSelectors = [
-                'main', 'article', '.content', '.post-content', '.entry-content',
-                '.article-content', '.page-content', '#content', '.main-content'
-            ];
-            
-            // selectors לא לכלול
-            const excludeSelectors = [
-                'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
-                '.widget', '.footer', '.header', '.nav', '.breadcrumb', '.breadcrumbs',
-                '.related-posts', '.comments', '.comment', '.social-share', 
-                'script', 'style', 'noscript'
-            ];
-            
-            let contentArea = null;
-            
-            // מצא את אזור התוכן
-            for (const selector of contentSelectors) {
-                const element = document.querySelector(selector);
-                if (element) {
-                    contentArea = element;
-                    break;
-                }
-            }
-            
-            // אם לא מצאנו אזור תוכן ספציפי, השתמש ב-body אבל הוצא את האזורים שלא רוצים
-            if (!contentArea) {
-                contentArea = document.body;
-            }
-            
-            // יצירת עותק נקי
-            const cleanContent = contentArea.cloneNode(true);
-            
-            // הסר כל האלמנטים שלא רוצים
-            excludeSelectors.forEach(selector => {
-                cleanContent.querySelectorAll(selector).forEach(el => el.remove());
-            });
-            
-            // חילוץ טקסט נקי
-            const mainText = cleanContent.innerText || cleanContent.textContent || '';
-            
-            // ספירת מילים מדויקת
-            const words = mainText.trim()
-                .replace(/\s+/g, ' ') // החלף כמה רווחים ברווח אחד
-                .split(' ')
-                .filter(word => word.length > 0 && /[a-zA-Z\u0590-\u05FF]/.test(word)); // רק מילים עם אותיות
-            
-            // ספירת תמונות בתוכן בלבד
-            const contentImages = Array.from(contentArea.querySelectorAll('img'));
-            const contentImagesFiltered = contentImages.filter(img => {
-                // בדוק אם התמונה נמצאת באזור שלא רוצים
-                for (const excludeSelector of excludeSelectors) {
-                    if (img.closest(excludeSelector)) {
-                        return false;
-                    }
-                }
-                return true;
-            });
-            
-            return {
-                text: mainText,
-                wordCount: words.length,
-                imageCount: contentImagesFiltered.length,
-                imagesWithoutAlt: contentImagesFiltered.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '').length
-            };
-        });
+        // חילוץ תוכן ראשי וספירת מילים מדויקת - הוסרה כי עברה לתוך page.evaluate
+        // הנתונים יגיעו מ-seoData._contentData
 
         // חילוץ meta tags מורחב
         const metaTags = await page.evaluate(() => {
@@ -761,10 +696,10 @@ app.post('/api/seo/audit', async (req, res) => {
         });
 
         // ניתוחים חדשים עם הנתונים המתוקנים
-        const contentData = seoData._contentData; // חילוץ הנתונים שהוחזרו מהדפדפן
-        const readabilityScore = calculateFleschScore(contentData.text);
-        const keywordDensity = analyzeKeywordDensity(contentData.text);
-        const contentFreshness = analyzeContentFreshness(contentData.text, metaTags);
+        const extractedContentData = seoData._contentData; // חילוץ הנתונים שהוחזרו מהדפדפן
+        const readabilityScore = calculateFleschScore(extractedContentData.text);
+        const keywordDensity = analyzeKeywordDensity(extractedContentData.text);
+        const contentFreshness = analyzeContentFreshness(extractedContentData.text, metaTags);
         const contentLinks = await getContentInternalLinks(page);
         const clickDepth = calculateClickDepth(url);
         
