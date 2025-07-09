@@ -761,14 +761,84 @@ app.post('/api/seo/audit', async (req, res) => {
         });
 
         // ניתוחים חדשים עם הנתונים המתוקנים
+        const contentData = seoData._contentData; // חילוץ הנתונים שהוחזרו מהדפדפן
         const readabilityScore = calculateFleschScore(contentData.text);
         const keywordDensity = analyzeKeywordDensity(contentData.text);
         const contentFreshness = analyzeContentFreshness(contentData.text, metaTags);
         const contentLinks = await getContentInternalLinks(page);
         const clickDepth = calculateClickDepth(url);
         
+        // הסר את _contentData מהתוצאה הסופית
+        delete seoData._contentData;
+        
         // Comprehensive SEO analysis
         const seoData = await page.evaluate(() => {
+            // חילוץ נתונים על תוכן ותמונות ישירות כאן
+            const contentSelectors = [
+                'main', 'article', '.content', '.post-content', '.entry-content',
+                '.article-content', '.page-content', '#content', '.main-content'
+            ];
+            
+            // selectors לא לכלול
+            const excludeSelectors = [
+                'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
+                '.widget', '.footer', '.header', '.nav', '.breadcrumb', '.breadcrumbs',
+                '.related-posts', '.comments', '.comment', '.social-share', 
+                'script', 'style', 'noscript'
+            ];
+            
+            let contentArea = null;
+            
+            // מצא את אזור התוכן
+            for (const selector of contentSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    contentArea = element;
+                    break;
+                }
+            }
+            
+            // אם לא מצאנו אזור תוכן ספציפי, השתמש ב-body אבל הוצא את האזורים שלא רוצים
+            if (!contentArea) {
+                contentArea = document.body;
+            }
+            
+            // יצירת עותק נקי
+            const cleanContent = contentArea.cloneNode(true);
+            
+            // הסר כל האלמנטים שלא רוצים
+            excludeSelectors.forEach(selector => {
+                cleanContent.querySelectorAll(selector).forEach(el => el.remove());
+            });
+            
+            // חילוץ טקסט נקי
+            const mainText = cleanContent.innerText || cleanContent.textContent || '';
+            
+            // ספירת מילים מדויקת
+            const words = mainText.trim()
+                .replace(/\s+/g, ' ') // החלף כמה רווחים ברווח אחד
+                .split(' ')
+                .filter(word => word.length > 0 && /[a-zA-Z\u0590-\u05FF]/.test(word)); // רק מילים עם אותיות
+            
+            // ספירת תמונות בתוכן בלבד
+            const contentImages = Array.from(contentArea.querySelectorAll('img'));
+            const contentImagesFiltered = contentImages.filter(img => {
+                // בדוק אם התמונה נמצאת באזור שלא רוצים
+                for (const excludeSelector of excludeSelectors) {
+                    if (img.closest(excludeSelector)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            
+            const contentData = {
+                text: mainText,
+                wordCount: words.length,
+                imageCount: contentImagesFiltered.length,
+                imagesWithoutAlt: contentImagesFiltered.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '').length
+            };
+
             // Basic meta data
             const title = document.title;
             const description = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
@@ -921,10 +991,6 @@ app.post('/api/seo/audit', async (req, res) => {
                     script.getAttribute('src')?.includes('.min.js'))
             };
             
-            // Broken links detection (basic client-side check)
-            const brokenLinks = [];
-            const externalLinksToCheck = Array.from(document.querySelectorAll('a[href^="http"]')).slice(0, 10); // לבדוק רק 10 ראשונים
-            
             return {
                 // Basic SEO
                 title,
@@ -975,7 +1041,10 @@ app.post('/api/seo/audit', async (req, res) => {
                     no_h1_tag: document.querySelectorAll('h1').length === 0,
                     no_image_alt: document.querySelectorAll('img:not([alt]), img[alt=""]').length > 0,
                     broken_links: [] // Will be populated if we add link checking
-                }
+                },
+                
+                // Return contentData for use in Node.js
+                _contentData: contentData
             };
         });
         
