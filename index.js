@@ -56,6 +56,41 @@ const STOP_WORDS = {
     english: ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'up', 'about', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'between', 'among', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'must', 'shall', 'this', 'that', 'these', 'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'me', 'him', 'her', 'us', 'them', 'my', 'your', 'his', 'her', 'its', 'our', 'their', 'what', 'when', 'where', 'why', 'how', 'who', 'which', 'one', 'two', 'first', 'second', 'third']
 };
 
+// פונקציה לספירת הברות
+function countSyllables(word, language) {
+    const cleanWord = word.toLowerCase().replace(/[^a-zA-Z\u0590-\u05FF]/g, '');
+    
+    if (cleanWord.length === 0) return 0;
+
+    if (language === 'hebrew') {
+        // תנועות בעברית
+        const vowels = /[אהוייע]/g;
+        const matches = cleanWord.match(vowels);
+        return Math.max(1, matches ? matches.length : 1);
+    } else {
+        // הברות באנגלית
+        const vowels = /[aeiouy]/g;
+        let syllables = (cleanWord.match(vowels) || []).length;
+        
+        // כללים מיוחדים לאנגלית
+        if (cleanWord.endsWith('e')) syllables--;
+        if (cleanWord.includes('le') && cleanWord.length > 2) syllables++;
+        
+        return Math.max(1, syllables);
+    }
+}
+
+// פונקציה להגדרת רמת קריאות
+function getReadabilityLevel(score) {
+    if (score >= 90) return 'Very Easy';
+    if (score >= 80) return 'Easy';
+    if (score >= 70) return 'Fairly Easy';
+    if (score >= 60) return 'Standard';
+    if (score >= 50) return 'Fairly Difficult';
+    if (score >= 30) return 'Difficult';
+    return 'Very Difficult';
+}
+
 // פונקציה לחישוב Flesch Reading Score
 function calculateFleschScore(text, language = 'english') {
     if (!text || text.trim().length === 0) {
@@ -117,39 +152,33 @@ function calculateFleschScore(text, language = 'english') {
     };
 }
 
-// פונקציה לספירת הברות
-function countSyllables(word, language) {
-    const cleanWord = word.toLowerCase().replace(/[^a-zA-Z\u0590-\u05FF]/g, '');
+// פונקציה להגדרת קטגוריית מילת מפתח
+function getKeywordCategory(count, totalWords) {
+    const density = (count / totalWords) * 100;
     
-    if (cleanWord.length === 0) return 0;
-
-    if (language === 'hebrew') {
-        // תנועות בעברית
-        const vowels = /[אהוייע]/g;
-        const matches = cleanWord.match(vowels);
-        return Math.max(1, matches ? matches.length : 1);
-    } else {
-        // הברות באנגלית
-        const vowels = /[aeiouy]/g;
-        let syllables = (cleanWord.match(vowels) || []).length;
-        
-        // כללים מיוחדים לאנגלית
-        if (cleanWord.endsWith('e')) syllables--;
-        if (cleanWord.includes('le') && cleanWord.length > 2) syllables++;
-        
-        return Math.max(1, syllables);
-    }
+    if (density >= 5) return 'high'; // יותר מ-5% - גבוה מדי
+    if (density >= 2) return 'optimal'; // 2-5% - אופטימלי
+    if (density >= 1) return 'moderate'; // 1-2% - בינוני
+    return 'low'; // פחות מ-1% - נמוך
 }
 
-// פונקציה להגדרת רמת קריאות
-function getReadabilityLevel(score) {
-    if (score >= 90) return 'Very Easy';
-    if (score >= 80) return 'Easy';
-    if (score >= 70) return 'Fairly Easy';
-    if (score >= 60) return 'Standard';
-    if (score >= 50) return 'Fairly Difficult';
-    if (score >= 30) return 'Difficult';
-    return 'Very Difficult';
+// פונקציה להמלצות על מילות מפתח
+function getKeywordRecommendation(count, totalWords, wordCount) {
+    const density = (count / totalWords) * 100;
+    
+    if (density >= 5) {
+        return 'Consider reducing usage - may be seen as keyword stuffing';
+    }
+    if (density >= 2 && density < 5) {
+        return 'Good keyword density - well optimized';
+    }
+    if (density >= 1 && density < 2) {
+        return 'Moderate usage - could be increased slightly';
+    }
+    if (wordCount > 2) {
+        return 'Good long-tail keyword - valuable for SEO';
+    }
+    return 'Low density - consider using more frequently';
 }
 
 // פונקציה לניתוח keyword density - משופרת
@@ -260,33 +289,48 @@ function analyzeKeywordDensity(text) {
     };
 }
 
-// פונקציה להגדרת קטגוריית מילת מפתח
-function getKeywordCategory(count, totalWords) {
-    const density = (count / totalWords) * 100;
+// פונקציה לפירוס תאריכים
+function parseDate(dateStr) {
+    if (!dateStr) return null;
     
-    if (density >= 5) return 'high'; // יותר מ-5% - גבוה מדי
-    if (density >= 2) return 'optimal'; // 2-5% - אופטימלי
-    if (density >= 1) return 'moderate'; // 1-2% - בינוני
-    return 'low'; // פחות מ-1% - נמוך
-}
+    const cleanStr = dateStr.trim();
+    
+    // נסה פורמטים שונים
+    const formats = [
+        // ISO
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+        /^\d{4}-\d{2}-\d{2}/,
+        
+        // DD/MM/YYYY או MM/DD/YYYY
+        /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/,
+        
+        // YYYY/MM/DD
+        /^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/
+    ];
 
-// פונקציה להמלצות על מילות מפתח
-function getKeywordRecommendation(count, totalWords, wordCount) {
-    const density = (count / totalWords) * 100;
-    
-    if (density >= 5) {
-        return 'Consider reducing usage - may be seen as keyword stuffing';
+    // נסה Date constructor רגיל תחילה
+    let date = new Date(cleanStr);
+    if (!isNaN(date.getTime())) {
+        return date;
     }
-    if (density >= 2 && density < 5) {
-        return 'Good keyword density - well optimized';
+
+    // נסה פורמטים ספציפיים
+    for (const format of formats) {
+        const match = cleanStr.match(format);
+        if (match) {
+            if (format.source.includes('4})[')) { // YYYY/MM/DD
+                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+            } else { // DD/MM/YYYY - נניח DD/MM
+                date = new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+            }
+            
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
+        }
     }
-    if (density >= 1 && density < 2) {
-        return 'Moderate usage - could be increased slightly';
-    }
-    if (wordCount > 2) {
-        return 'Good long-tail keyword - valuable for SEO';
-    }
-    return 'Low density - consider using more frequently';
+
+    return null;
 }
 
 // פונקציה לזיהוי תאריכים בתוכן - משופרת
@@ -421,50 +465,6 @@ function analyzeContentFreshness(text, metaTags = {}) {
     return results;
 }
 
-// פונקציה לפירוס תאריכים
-function parseDate(dateStr) {
-    if (!dateStr) return null;
-    
-    const cleanStr = dateStr.trim();
-    
-    // נסה פורמטים שונים
-    const formats = [
-        // ISO
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
-        /^\d{4}-\d{2}-\d{2}/,
-        
-        // DD/MM/YYYY או MM/DD/YYYY
-        /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/,
-        
-        // YYYY/MM/DD
-        /^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/
-    ];
-
-    // נסה Date constructor רגיל תחילה
-    let date = new Date(cleanStr);
-    if (!isNaN(date.getTime())) {
-        return date;
-    }
-
-    // נסה פורמטים ספציפיים
-    for (const format of formats) {
-        const match = cleanStr.match(format);
-        if (match) {
-            if (format.source.includes('4})[')) { // YYYY/MM/DD
-                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
-            } else { // DD/MM/YYYY - נניח DD/MM
-                date = new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
-            }
-            
-            if (!isNaN(date.getTime())) {
-                return date;
-            }
-        }
-    }
-
-    return null;
-}
-
 // פונקציה לעדכון הקישורים הפנימיים (רק מהתוכן)
 async function getContentInternalLinks(page) {
     return await page.evaluate(() => {
@@ -542,6 +542,328 @@ function calculateClickDepth(url) {
         
     } catch (error) {
         return null; // URL לא תקין
+    }
+}
+
+// Enhanced SEO Score calculation with new factors
+function calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData) {
+    let score = 100;
+    const issues = [];
+    const recommendations = [];
+    const breakdown = {
+        content: 0,
+        technical: 0,
+        performance: 0,
+        mobile: 0,
+        social: 0,
+        structured: 0,
+        readability: 0,
+        freshness: 0
+    };
+    
+    // Content Score (25 points) - reduced to make room for new factors
+    let contentScore = 25;
+    
+    // Title optimization
+    if (!seoData.title) {
+        contentScore -= 6;
+        issues.push('Missing page title');
+        recommendations.push('Add a descriptive page title');
+    } else if (seoData.titleLength < 30 || seoData.titleLength > 60) {
+        contentScore -= 3;
+        issues.push('Title length not optimal (30-60 chars)');
+        recommendations.push('Optimize title length to 30-60 characters');
+    }
+    
+    // Meta description
+    if (!seoData.description) {
+        contentScore -= 5;
+        issues.push('Missing meta description');
+        recommendations.push('Add a compelling meta description');
+    } else if (seoData.descriptionLength < 120 || seoData.descriptionLength > 160) {
+        contentScore -= 2;
+        issues.push('Meta description length not optimal (120-160 chars)');
+        recommendations.push('Optimize meta description to 120-160 characters');
+    }
+    
+    // Headings structure
+    if (seoData.headings.h1.length === 0) {
+        contentScore -= 5;
+        issues.push('Missing H1 tag');
+        recommendations.push('Add a clear H1 heading that describes the page content');
+    } else if (seoData.headings.h1.length > 1) {
+        contentScore -= 2;
+        issues.push('Multiple H1 tags found');
+        recommendations.push('Use only one H1 tag per page');
+    }
+    
+    // Content length
+    if (seoData.wordCount < 300) {
+        contentScore -= 3;
+        issues.push('Content too short (less than 300 words)');
+        recommendations.push('Add more valuable content (aim for 300+ words)');
+    }
+    
+    // Images with alt text
+    if (seoData.imageAnalysis.withoutAlt > 0) {
+        const penalty = Math.min(4, seoData.imageAnalysis.withoutAlt);
+        contentScore -= penalty;
+        issues.push(`${seoData.imageAnalysis.withoutAlt} images missing alt text`);
+        recommendations.push('Add descriptive alt text to all images');
+    }
+    
+    breakdown.content = Math.max(0, contentScore);
+    
+    // Technical Score (20 points)
+    let technicalScore = 20;
+    
+    // Status code checks
+    if (enhancedData.statusChecks.is_4xx_code) {
+        technicalScore -= 8;
+        issues.push('Page returns 4xx error');
+        recommendations.push('Fix the 4xx error to make page accessible');
+    }
+    
+    if (enhancedData.statusChecks.is_5xx_code) {
+        technicalScore -= 10;
+        issues.push('Page returns 5xx server error');
+        recommendations.push('Fix server error immediately');
+    }
+    
+    // HTTPS
+    if (!seoData.technicalSEO.hasHTTPS) {
+        technicalScore -= 5;
+        issues.push('Not using HTTPS');
+        recommendations.push('Implement SSL certificate for security');
+    }
+    
+    // Canonical URL
+    if (!seoData.technicalSEO.hasCanonical) {
+        technicalScore -= 2;
+        issues.push('Missing canonical URL');
+        recommendations.push('Add canonical URL to prevent duplicate content');
+    }
+    
+    // Viewport meta tag
+    if (!seoData.technicalSEO.hasViewport) {
+        technicalScore -= 3;
+        issues.push('Missing viewport meta tag');
+        recommendations.push('Add viewport meta tag for mobile optimization');
+    }
+    
+    breakdown.technical = Math.max(0, technicalScore);
+    
+    // Performance Score (15 points)
+    let performanceScore = 15;
+    
+    if (performanceMetrics.loadTime > 3000) {
+        performanceScore -= 6;
+        issues.push('Slow page load time');
+        recommendations.push('Optimize images and reduce HTTP requests');
+    } else if (performanceMetrics.loadTime > 2000) {
+        performanceScore -= 3;
+        issues.push('Page load time could be improved');
+        recommendations.push('Consider optimizing page load speed');
+    }
+    
+    breakdown.performance = Math.max(0, performanceScore);
+    
+    // Mobile Score (10 points)
+    let mobileScore = 10;
+    
+    if (!seoData.technicalSEO.isResponsive) {
+        mobileScore -= 8;
+        issues.push('Not mobile responsive');
+        recommendations.push('Implement responsive design for mobile devices');
+    }
+    
+    breakdown.mobile = Math.max(0, mobileScore);
+    
+    // Social Score (8 points)
+    let socialScore = 8;
+    
+    if (Object.keys(seoData.socialMeta.openGraph).length === 0) {
+        socialScore -= 4;
+        issues.push('Missing Open Graph tags');
+        recommendations.push('Add Open Graph meta tags for social sharing');
+    }
+    
+    if (Object.keys(seoData.socialMeta.twitterCard).length === 0) {
+        socialScore -= 2;
+        issues.push('Missing Twitter Card tags');
+        recommendations.push('Add Twitter Card meta tags');
+    }
+    
+    breakdown.social = Math.max(0, socialScore);
+    
+    // Structured Data Score (7 points)
+    let structuredScore = 7;
+    
+    if (!seoData.structuredData.hasStructuredData) {
+        structuredScore -= 5;
+        issues.push('No structured data found');
+        recommendations.push('Add Schema.org structured data markup');
+    }
+    
+    breakdown.structured = Math.max(0, structuredScore);
+    
+    // NEW: Readability Score (8 points)
+    let readabilityScore = 8;
+    
+    if (enhancedData.readabilityScore < 30) {
+        readabilityScore -= 6;
+        issues.push('Content is very difficult to read');
+        recommendations.push('Simplify sentences and use shorter words');
+    } else if (enhancedData.readabilityScore < 50) {
+        readabilityScore -= 3;
+        issues.push('Content readability could be improved');
+        recommendations.push('Consider shorter sentences and simpler language');
+    }
+    
+    breakdown.readability = Math.max(0, readabilityScore);
+    
+    // NEW: Content Freshness Score (7 points)
+    let freshnessScore = 7;
+    
+    if (enhancedData.contentFreshness === 'old') {
+        freshnessScore -= 4;
+        issues.push('Content appears to be old');
+        recommendations.push('Update content with recent information');
+    } else if (enhancedData.contentFreshness === 'fresh') {
+        // Bonus for fresh content
+        freshnessScore = 7;
+    }
+    
+    breakdown.freshness = Math.max(0, freshnessScore);
+    
+    const totalScore = Object.values(breakdown).reduce((sum, score) => sum + score, 0);
+    const grade = totalScore >= 90 ? 'A' : totalScore >= 80 ? 'B' : totalScore >= 70 ? 'C' : totalScore >= 60 ? 'D' : 'F';
+    
+    return {
+        total: Math.max(0, Math.round(totalScore)),
+        grade,
+        issues,
+        recommendations,
+        breakdown
+    };
+}
+
+// Extract all schema types from page
+async function extractAllSchemas(page, options = {}) {
+    const results = {};
+    
+    // 1. JSON-LD Structured Data
+    try {
+        results.jsonLD = await page.evaluate(() => {
+            const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+            return scripts.map(script => {
+                try {
+                    return JSON.parse(script.textContent);
+                } catch (e) {
+                    return null;
+                }
+            }).filter(Boolean);
+        });
+    } catch (e) {
+        results.jsonLD = [];
+    }
+    
+    // 2. Microdata
+    try {
+        results.microdata = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('[itemscope]'));
+            return items.map(item => {
+                const type = item.getAttribute('itemtype');
+                const properties = {};
+                
+                const props = Array.from(item.querySelectorAll('[itemprop]'));
+                props.forEach(prop => {
+                    const name = prop.getAttribute('itemprop');
+                    const value = prop.getAttribute('content') || 
+                                 prop.getAttribute('datetime') ||
+                                 prop.textContent.trim();
+                    properties[name] = value;
+                });
+                
+                return { type, properties };
+            });
+        });
+    } catch (e) {
+        results.microdata = [];
+    }
+    
+    // 3. Open Graph
+    try {
+        results.openGraph = await page.evaluate(() => {
+            const ogTags = Array.from(document.querySelectorAll('meta[property^="og:"]'));
+            const og = {};
+            ogTags.forEach(tag => {
+                const property = tag.getAttribute('property').replace('og:', '');
+                const content = tag.getAttribute('content');
+                og[property] = content;
+            });
+            return og;
+        });
+    } catch (e) {
+        results.openGraph = {};
+    }
+    
+    // 4. Twitter Cards
+    try {
+        results.twitterCard = await page.evaluate(() => {
+            const twitterTags = Array.from(document.querySelectorAll('meta[name^="twitter:"]'));
+            const twitter = {};
+            twitterTags.forEach(tag => {
+                const name = tag.getAttribute('name').replace('twitter:', '');
+                const content = tag.getAttribute('content');
+                twitter[name] = content;
+            });
+            return twitter;
+        });
+    } catch (e) {
+        results.twitterCard = {};
+    }
+    
+    // 5. Basic SEO Meta
+    try {
+        results.seoMeta = await page.evaluate(() => ({
+            title: document.title,
+            description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
+            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content'),
+            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+            robots: document.querySelector('meta[name="robots"]')?.getAttribute('content')
+        }));
+    } catch (e) {
+        results.seoMeta = {};
+    }
+    
+    return results;
+}
+
+// Cleanup old screenshots (older than 7 days)
+function cleanupOldScreenshots() {
+    const fs = require('fs');
+    const path = require('path');
+    const screenshotsDir = '/app/screenshots';
+    
+    try {
+        if (fs.existsSync(screenshotsDir)) {
+            const files = fs.readdirSync(screenshotsDir);
+            const now = Date.now();
+            const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+            
+            files.forEach(file => {
+                const filePath = path.join(screenshotsDir, file);
+                const stats = fs.statSync(filePath);
+                
+                if (now - stats.mtime.getTime() > sevenDays) {
+                    fs.unlinkSync(filePath);
+                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error cleaning up screenshots:', error);
     }
 }
 
@@ -652,9 +974,6 @@ app.post('/api/seo/audit', async (req, res) => {
                 timeToInteractive: perfData?.loadEventEnd || 0
             };
         });
-        
-        // חילוץ תוכן ראשי וספירת מילים מדויקת - הוסרה כי עברה לתוך page.evaluate
-        // הנתונים יגיעו מ-seoData._contentData
 
         // חילוץ meta tags מורחב
         const metaTags = await page.evaluate(() => {
@@ -695,17 +1014,6 @@ app.post('/api/seo/audit', async (req, res) => {
             return tags;
         });
 
-        // ניתוחים חדשים עם הנתונים המתוקנים
-        const extractedContentData = seoData._contentData; // חילוץ הנתונים שהוחזרו מהדפדפן
-        const readabilityScore = calculateFleschScore(extractedContentData.text);
-        const keywordDensity = analyzeKeywordDensity(extractedContentData.text);
-        const contentFreshness = analyzeContentFreshness(extractedContentData.text, metaTags);
-        const contentLinks = await getContentInternalLinks(page);
-        const clickDepth = calculateClickDepth(url);
-        
-        // הסר את _contentData מהתוצאה הסופית
-        delete seoData._contentData;
-        
         // Comprehensive SEO analysis
         const seoData = await page.evaluate(() => {
             // חילוץ נתונים על תוכן ותמונות ישירות כאן
@@ -983,6 +1291,17 @@ app.post('/api/seo/audit', async (req, res) => {
             };
         });
         
+        // ניתוחים חדשים עם הנתונים המתוקנים
+        const extractedContentData = seoData._contentData; // חילוץ הנתונים שהוחזרו מהדפדפן
+        const readabilityScore = calculateFleschScore(extractedContentData.text);
+        const keywordDensity = analyzeKeywordDensity(extractedContentData.text);
+        const contentFreshness = analyzeContentFreshness(extractedContentData.text, metaTags);
+        const contentLinks = await getContentInternalLinks(page);
+        const clickDepth = calculateClickDepth(url);
+        
+        // הסר את _contentData מהתוצאה הסופית
+        delete seoData._contentData;
+        
         // Calculate comprehensive SEO score with new factors
         const enhancedSeoScore = calculateEnhancedSEOScore(seoData, performanceMetrics, {
             readabilityScore: readabilityScore.score,
@@ -1023,7 +1342,7 @@ app.post('/api/seo/audit', async (req, res) => {
             performance: {
                 ...performanceMetrics,
                 loadTime: loadTime,
-                scoreBreakdown: seoScore.breakdown
+                scoreBreakdown: enhancedSeoScore.breakdown
             }
         };
         
@@ -1057,313 +1376,6 @@ app.post('/api/seo/audit', async (req, res) => {
         }
     }
 });
-
-// Enhanced SEO Score calculation with new factors
-function calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData) {
-    let score = 100;
-    const issues = [];
-    const recommendations = [];
-    const breakdown = {
-        content: 0,
-        technical: 0,
-        performance: 0,
-        mobile: 0,
-        social: 0,
-        structured: 0,
-        readability: 0,
-        freshness: 0
-    };
-    
-    // Content Score (25 points) - reduced to make room for new factors
-    let contentScore = 25;
-    
-    // Title optimization
-    if (!seoData.title) {
-        contentScore -= 6;
-        issues.push('Missing page title');
-        recommendations.push('Add a descriptive page title');
-    } else if (seoData.titleLength < 30 || seoData.titleLength > 60) {
-        contentScore -= 3;
-        issues.push('Title length not optimal (30-60 chars)');
-        recommendations.push('Optimize title length to 30-60 characters');
-    }
-    
-    // Meta description
-    if (!seoData.description) {
-        contentScore -= 5;
-        issues.push('Missing meta description');
-        recommendations.push('Add a compelling meta description');
-    } else if (seoData.descriptionLength < 120 || seoData.descriptionLength > 160) {
-        contentScore -= 2;
-        issues.push('Meta description length not optimal (120-160 chars)');
-        recommendations.push('Optimize meta description to 120-160 characters');
-    }
-    
-    // Headings structure
-    if (seoData.headings.h1.length === 0) {
-        contentScore -= 5;
-        issues.push('Missing H1 tag');
-        recommendations.push('Add a clear H1 heading that describes the page content');
-    } else if (seoData.headings.h1.length > 1) {
-        contentScore -= 2;
-        issues.push('Multiple H1 tags found');
-        recommendations.push('Use only one H1 tag per page');
-    }
-    
-    // Content length
-    if (seoData.wordCount < 300) {
-        contentScore -= 3;
-        issues.push('Content too short (less than 300 words)');
-        recommendations.push('Add more valuable content (aim for 300+ words)');
-    }
-    
-    // Images with alt text
-    if (seoData.imageAnalysis.withoutAlt > 0) {
-        const penalty = Math.min(4, seoData.imageAnalysis.withoutAlt);
-        contentScore -= penalty;
-        issues.push(`${seoData.imageAnalysis.withoutAlt} images missing alt text`);
-        recommendations.push('Add descriptive alt text to all images');
-    }
-    
-    breakdown.content = Math.max(0, contentScore);
-    
-    // Technical Score (20 points)
-    let technicalScore = 20;
-    
-    // Status code checks
-    if (enhancedData.statusChecks.is_4xx_code) {
-        technicalScore -= 8;
-        issues.push('Page returns 4xx error');
-        recommendations.push('Fix the 4xx error to make page accessible');
-    }
-    
-    if (enhancedData.statusChecks.is_5xx_code) {
-        technicalScore -= 10;
-        issues.push('Page returns 5xx server error');
-        recommendations.push('Fix server error immediately');
-    }
-    
-    // HTTPS
-    if (!seoData.technicalSEO.hasHTTPS) {
-        technicalScore -= 5;
-        issues.push('Not using HTTPS');
-        recommendations.push('Implement SSL certificate for security');
-    }
-    
-    // Canonical URL
-    if (!seoData.technicalSEO.hasCanonical) {
-        technicalScore -= 2;
-        issues.push('Missing canonical URL');
-        recommendations.push('Add canonical URL to prevent duplicate content');
-    }
-    
-    // Viewport meta tag
-    if (!seoData.technicalSEO.hasViewport) {
-        technicalScore -= 3;
-        issues.push('Missing viewport meta tag');
-        recommendations.push('Add viewport meta tag for mobile optimization');
-    }
-    
-    breakdown.technical = Math.max(0, technicalScore);
-    
-    // Performance Score (15 points)
-    let performanceScore = 15;
-    
-    if (performanceMetrics.loadTime > 3000) {
-        performanceScore -= 6;
-        issues.push('Slow page load time');
-        recommendations.push('Optimize images and reduce HTTP requests');
-    } else if (performanceMetrics.loadTime > 2000) {
-        performanceScore -= 3;
-        issues.push('Page load time could be improved');
-        recommendations.push('Consider optimizing page load speed');
-    }
-    
-    breakdown.performance = Math.max(0, performanceScore);
-    
-    // Mobile Score (10 points)
-    let mobileScore = 10;
-    
-    if (!seoData.technicalSEO.isResponsive) {
-        mobileScore -= 8;
-        issues.push('Not mobile responsive');
-        recommendations.push('Implement responsive design for mobile devices');
-    }
-    
-    breakdown.mobile = Math.max(0, mobileScore);
-    
-    // Social Score (8 points)
-    let socialScore = 8;
-    
-    if (Object.keys(seoData.socialMeta.openGraph).length === 0) {
-        socialScore -= 4;
-        issues.push('Missing Open Graph tags');
-        recommendations.push('Add Open Graph meta tags for social sharing');
-    }
-    
-    if (Object.keys(seoData.socialMeta.twitterCard).length === 0) {
-        socialScore -= 2;
-        issues.push('Missing Twitter Card tags');
-        recommendations.push('Add Twitter Card meta tags');
-    }
-    
-    breakdown.social = Math.max(0, socialScore);
-    
-    // Structured Data Score (7 points)
-    let structuredScore = 7;
-    
-    if (!seoData.structuredData.hasStructuredData) {
-        structuredScore -= 5;
-        issues.push('No structured data found');
-        recommendations.push('Add Schema.org structured data markup');
-    }
-    
-    breakdown.structured = Math.max(0, structuredScore);
-    
-    // NEW: Readability Score (8 points)
-    let readabilityScore = 8;
-    
-    if (enhancedData.readabilityScore < 30) {
-        readabilityScore -= 6;
-        issues.push('Content is very difficult to read');
-        recommendations.push('Simplify sentences and use shorter words');
-    } else if (enhancedData.readabilityScore < 50) {
-        readabilityScore -= 3;
-        issues.push('Content readability could be improved');
-        recommendations.push('Consider shorter sentences and simpler language');
-    }
-    
-    breakdown.readability = Math.max(0, readabilityScore);
-    
-    // NEW: Content Freshness Score (7 points)
-    let freshnessScore = 7;
-    
-    if (enhancedData.contentFreshness === 'old') {
-        freshnessScore -= 4;
-        issues.push('Content appears to be old');
-        recommendations.push('Update content with recent information');
-    } else if (enhancedData.contentFreshness === 'fresh') {
-        // Bonus for fresh content
-        freshnessScore = 7;
-    }
-    
-    breakdown.freshness = Math.max(0, freshnessScore);
-    
-    const totalScore = Object.values(breakdown).reduce((sum, score) => sum + score, 0);
-    const grade = totalScore >= 90 ? 'A' : totalScore >= 80 ? 'B' : totalScore >= 70 ? 'C' : totalScore >= 60 ? 'D' : 'F';
-    
-    return {
-        total: Math.max(0, Math.round(totalScore)),
-        grade,
-        issues,
-        recommendations,
-        breakdown
-    };
-}
-
-// Legacy function - now replaced by calculateEnhancedSEOScore
-function calculateSEOScore(seoData, performanceMetrics) {
-    // This function is kept for backward compatibility
-    return calculateEnhancedSEOScore(seoData, performanceMetrics, {
-        readabilityScore: 60,
-        keywordDensity: 0,
-        contentFreshness: 'unknown',
-        statusChecks: { is_4xx_code: false, is_5xx_code: false, is_redirect: false },
-        clickDepth: null
-    });
-}
-
-// Extract all schema types from page
-async function extractAllSchemas(page, options = {}) {
-    const results = {};
-    
-    // 1. JSON-LD Structured Data
-    try {
-        results.jsonLD = await page.evaluate(() => {
-            const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-            return scripts.map(script => {
-                try {
-                    return JSON.parse(script.textContent);
-                } catch (e) {
-                    return null;
-                }
-            }).filter(Boolean);
-        });
-    } catch (e) {
-        results.jsonLD = [];
-    }
-    
-    // 2. Microdata
-    try {
-        results.microdata = await page.evaluate(() => {
-            const items = Array.from(document.querySelectorAll('[itemscope]'));
-            return items.map(item => {
-                const type = item.getAttribute('itemtype');
-                const properties = {};
-                
-                const props = Array.from(item.querySelectorAll('[itemprop]'));
-                props.forEach(prop => {
-                    const name = prop.getAttribute('itemprop');
-                    const value = prop.getAttribute('content') || 
-                                 prop.getAttribute('datetime') ||
-                                 prop.textContent.trim();
-                    properties[name] = value;
-                });
-                
-                return { type, properties };
-            });
-        });
-    } catch (e) {
-        results.microdata = [];
-    }
-    
-    // 3. Open Graph
-    try {
-        results.openGraph = await page.evaluate(() => {
-            const ogTags = Array.from(document.querySelectorAll('meta[property^="og:"]'));
-            const og = {};
-            ogTags.forEach(tag => {
-                const property = tag.getAttribute('property').replace('og:', '');
-                const content = tag.getAttribute('content');
-                og[property] = content;
-            });
-            return og;
-        });
-    } catch (e) {
-        results.openGraph = {};
-    }
-    
-    // 4. Twitter Cards
-    try {
-        results.twitterCard = await page.evaluate(() => {
-            const twitterTags = Array.from(document.querySelectorAll('meta[name^="twitter:"]'));
-            const twitter = {};
-            twitterTags.forEach(tag => {
-                const name = tag.getAttribute('name').replace('twitter:', '');
-                const content = tag.getAttribute('content');
-                twitter[name] = content;
-            });
-            return twitter;
-        });
-    } catch (e) {
-        results.twitterCard = {};
-    }
-    
-    // 5. Basic SEO Meta
-    try {
-        results.seoMeta = await page.evaluate(() => ({
-            title: document.title,
-            description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
-            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content'),
-            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
-            robots: document.querySelector('meta[name="robots"]')?.getAttribute('content')
-        }));
-    } catch (e) {
-        results.seoMeta = {};
-    }
-    
-    return results;
-}
 
 // Schema Extraction Endpoint
 app.post('/api/extract/schema', async (req, res) => {
@@ -1595,33 +1607,6 @@ app.post('/api/screenshot', async (req, res) => {
     }
 });
 
-// Cleanup old screenshots (older than 7 days)
-function cleanupOldScreenshots() {
-    const fs = require('fs');
-    const path = require('path');
-    const screenshotsDir = '/app/screenshots';
-    
-    try {
-        if (fs.existsSync(screenshotsDir)) {
-            const files = fs.readdirSync(screenshotsDir);
-            const now = Date.now();
-            const sevenDays = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-            
-            files.forEach(file => {
-                const filePath = path.join(screenshotsDir, file);
-                const stats = fs.statSync(filePath);
-                
-                if (now - stats.mtime.getTime() > sevenDays) {
-                    fs.unlinkSync(filePath);
-                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Error cleaning up screenshots:', error);
-    }
-}
-
 // Advanced Schema Validation Endpoint
 app.post('/api/validate/schema', async (req, res) => {
     const { url, validateAll = true } = req.body;
@@ -1671,18 +1656,18 @@ app.post('/api/validate/schema', async (req, res) => {
                         format: 'JSON-LD',
                         valid: validation.valid,
                         score: validation.score,
-                        completeness: validation.completeness,
+                        completeness: validation.completeness || 0,
                         authorityScore: validation.authorityScore || 0,
                         errors: validation.errors,
-                        warnings: validation.warnings,
-                        recommendations: validation.recommendations,
+                        warnings: validation.warnings || [],
+                        recommendations: validation.recommendations || [],
                         schema: validateAll ? schema : undefined
                     });
                     
                     validationResults.summary.totalSchemas++;
                     if (validation.valid) validationResults.summary.validSchemas++;
                     validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += validation.warnings.length;
+                    validationResults.summary.warningsFound += (validation.warnings || []).length;
                 }
             }
         }
@@ -1705,18 +1690,18 @@ app.post('/api/validate/schema', async (req, res) => {
                         format: 'Microdata',
                         valid: validation.valid,
                         score: validation.score,
-                        completeness: validation.completeness,
+                        completeness: validation.completeness || 0,
                         authorityScore: validation.authorityScore || 0,
                         errors: validation.errors,
-                        warnings: validation.warnings,
-                        recommendations: validation.recommendations,
+                        warnings: validation.warnings || [],
+                        recommendations: validation.recommendations || [],
                         schema: validateAll ? convertedSchema : undefined
                     });
                     
                     validationResults.summary.totalSchemas++;
                     if (validation.valid) validationResults.summary.validSchemas++;
                     validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += validation.warnings.length;
+                    validationResults.summary.warningsFound += (validation.warnings || []).length;
                 }
             }
         }
