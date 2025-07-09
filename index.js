@@ -867,14 +867,15 @@ app.get('/health', (req, res) => {
             'readability-analysis',
             'keyword-density',
             'content-freshness',
-            'click-depth-analysis'
+            'click-depth-analysis',
+            'quick-check'
         ],
         timestamp: new Date().toISOString()
     });
 });
 
-// Enhanced SEO Audit Endpoint with all new features
-app.post('/api/seo/audit', async (req, res) => {
+// Quick check endpoint - simple structured data check
+app.get('/api/extract/quick-check', async (req, res) => {
     const { url, includeScreenshot = false, detailed = true } = req.body;
     
     if (!url) {
@@ -1431,13 +1432,13 @@ app.post('/api/seo/audit', async (req, res) => {
 });
 
 // Quick check endpoint - simple structured data check
-app.get('/api/extract/quick-check', async (req, res) => {
-    const { url } = req.query;
+app.post('/api/extract/quick-check', async (req, res) => {
+    const { url } = req.body;
     
     if (!url) {
         return res.status(400).json({
             success: false,
-            error: 'URL parameter is required'
+            error: 'URL is required in request body'
         });
     }
 
@@ -1754,6 +1755,7 @@ app.use((req, res) => {
         error: 'Endpoint not found',
         availableEndpoints: [
             'GET /health',
+            'POST /api/extract/quick-check',
             'POST /api/seo/audit',
             'POST /api/schema/validate',
             'POST /api/schema/extract',
