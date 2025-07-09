@@ -1380,8 +1380,9 @@ app.get('/api/extract/quick-check', async (req, res) => {
             }
         }
 
-        // Clean up _contentData before sending response
+        // Clean up _contentData and structuredData before sending response
         delete seoData._contentData;
+        delete seoData.structuredData;
 
         // Build comprehensive response
         const apiResponse = {
