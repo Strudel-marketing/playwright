@@ -152,25 +152,41 @@ function getReadabilityLevel(score) {
     return 'Very Difficult';
 }
 
-// פונקציה לניתוח keyword density
+// פונקציה לניתוח keyword density - משופרת
 function analyzeKeywordDensity(text) {
     if (!text || text.trim().length === 0) {
-        return { topKeywords: [], totalWords: 0, error: 'No text provided' };
+        return { 
+            topKeywords: [], 
+            totalWords: 0, 
+            filteredWords: 0,
+            language: 'unknown',
+            error: 'No text provided' 
+        };
     }
 
     // זיהוי שפה בסיסי
     const hasHebrew = /[\u0590-\u05FF]/.test(text);
     const hasEnglish = /[a-zA-Z]/.test(text);
     
-    // ניקוי הטקסט
+    // ניקוי הטקסט - יותר אגרסיבי
     const cleanText = text.toLowerCase()
-                         .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ')
-                         .replace(/\s+/g, ' ')
+                         .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ') // רק אותיות ומספרים
+                         .replace(/\s+/g, ' ') // החלף רווחים מרובים ברווח אחד
                          .trim();
 
     // פיצול למילים
-    const allWords = cleanText.split(/\s+/).filter(w => w.length > 1);
+    const allWords = cleanText.split(/\s+/).filter(w => w.length > 1); // לפחות 2 תווים
     
+    if (allWords.length === 0) {
+        return { 
+            topKeywords: [], 
+            totalWords: 0, 
+            filteredWords: 0,
+            language: hasHebrew && hasEnglish ? 'mixed' : hasHebrew ? 'hebrew' : 'english',
+            error: 'No valid words found' 
+        };
+    }
+
     // סינון מילות חיבור
     const stopWords = new Set([
         ...(hasHebrew ? STOP_WORDS.hebrew : []),
@@ -180,7 +196,13 @@ function analyzeKeywordDensity(text) {
     const filteredWords = allWords.filter(word => !stopWords.has(word));
     
     if (filteredWords.length === 0) {
-        return { topKeywords: [], totalWords: allWords.length, error: 'No keywords after filtering' };
+        return { 
+            topKeywords: [], 
+            totalWords: allWords.length, 
+            filteredWords: 0,
+            language: hasHebrew && hasEnglish ? 'mixed' : hasHebrew ? 'hebrew' : 'english',
+            error: 'No keywords after filtering stop words' 
+        };
     }
 
     // ספירת רצפים
@@ -190,31 +212,84 @@ function analyzeKeywordDensity(text) {
     for (let length = 1; length <= 4; length++) {
         for (let i = 0; i <= filteredWords.length - length; i++) {
             const sequence = filteredWords.slice(i, i + length).join(' ');
-            sequences.set(sequence, (sequences.get(sequence) || 0) + 1);
+            
+            // דלג על רצפים שמתחילים או נגמרים במספרים בלבד
+            if (!/^\d+$/.test(sequence.split(' ')[0]) && !/^\d+$/.test(sequence.split(' ').slice(-1)[0])) {
+                sequences.set(sequence, (sequences.get(sequence) || 0) + 1);
+            }
         }
     }
 
-    // סינון רצפים שמופיעים לפחות 3 פעמים
+    // סינון וחישוב צפיפות
     const validSequences = Array.from(sequences.entries())
-        .filter(([sequence, count]) => count >= 3)
+        .filter(([sequence, count]) => {
+            // לפחות 3 הופעות אבל גם לא יותר מ-20% מכלל המילים (keyword stuffing)
+            const maxOccurrences = Math.floor(allWords.length * 0.2);
+            return count >= 3 && count <= maxOccurrences;
+        })
         .map(([sequence, count]) => ({
             keyword: sequence,
             count: count,
             density: Math.round((count / allWords.length) * 100 * 100) / 100, // אחוז עם 2 ספרות אחרי הנקודה
-            wordCount: sequence.split(' ').length
+            wordCount: sequence.split(' ').length,
+            // הוסף קטגוריה
+            category: getKeywordCategory(count, allWords.length),
+            // הוסף המלצה
+            recommendation: getKeywordRecommendation(count, allWords.length, sequence.split(' ').length)
         }))
-        .sort((a, b) => b.density - a.density)
-        .slice(0, 3); // Top 3
+        .sort((a, b) => {
+            // מיון לפי density ואז לפי אורך הביטוי (העדפה לביטויים ארוכים יותר)
+            if (Math.abs(a.density - b.density) < 0.1) {
+                return b.wordCount - a.wordCount;
+            }
+            return b.density - a.density;
+        })
+        .slice(0, 5); // Top 5 במקום 3
 
     return {
         topKeywords: validSequences,
         totalWords: allWords.length,
         filteredWords: filteredWords.length,
-        language: hasHebrew && hasEnglish ? 'mixed' : hasHebrew ? 'hebrew' : 'english'
+        language: hasHebrew && hasEnglish ? 'mixed' : hasHebrew ? 'hebrew' : 'english',
+        // הוסף סטטיסטיקות נוספות
+        averageDensity: validSequences.length > 0 ? 
+            Math.round((validSequences.reduce((sum, kw) => sum + kw.density, 0) / validSequences.length) * 100) / 100 : 0,
+        totalKeywordOccurrences: validSequences.reduce((sum, kw) => sum + kw.count, 0),
+        keywordCoverage: validSequences.length > 0 ? 
+            Math.round((validSequences.reduce((sum, kw) => sum + kw.count, 0) / allWords.length) * 100 * 100) / 100 : 0
     };
 }
 
-// פונקציה לזיהוי תאריכים בתוכן
+// פונקציה להגדרת קטגוריית מילת מפתח
+function getKeywordCategory(count, totalWords) {
+    const density = (count / totalWords) * 100;
+    
+    if (density >= 5) return 'high'; // יותר מ-5% - גבוה מדי
+    if (density >= 2) return 'optimal'; // 2-5% - אופטימלי
+    if (density >= 1) return 'moderate'; // 1-2% - בינוני
+    return 'low'; // פחות מ-1% - נמוך
+}
+
+// פונקציה להמלצות על מילות מפתח
+function getKeywordRecommendation(count, totalWords, wordCount) {
+    const density = (count / totalWords) * 100;
+    
+    if (density >= 5) {
+        return 'Consider reducing usage - may be seen as keyword stuffing';
+    }
+    if (density >= 2 && density < 5) {
+        return 'Good keyword density - well optimized';
+    }
+    if (density >= 1 && density < 2) {
+        return 'Moderate usage - could be increased slightly';
+    }
+    if (wordCount > 2) {
+        return 'Good long-tail keyword - valuable for SEO';
+    }
+    return 'Low density - consider using more frequently';
+}
+
+// פונקציה לזיהוי תאריכים בתוכן - משופרת
 function analyzeContentFreshness(text, metaTags = {}) {
     const results = {
         dates: [],
@@ -224,14 +299,24 @@ function analyzeContentFreshness(text, metaTags = {}) {
         sources: []
     };
 
-    // בדיקת meta tags תחילה
+    // בדיקת meta tags תחילה - רשימה מורחבת
     const metaDateFields = [
         'article:published_time',
-        'article:modified_time',
+        'article:modified_time', 
+        'article:updated_time',
         'date',
         'datePublished',
         'dateModified',
-        'lastmod'
+        'dateCreated',
+        'lastmod',
+        'pubdate',
+        'DC.date',
+        'DC.date.created',
+        'DC.date.modified',
+        'sailthru.date',
+        'publish_date',
+        'updated_time',
+        'modified_time'
     ];
 
     metaDateFields.forEach(field => {
@@ -239,30 +324,44 @@ function analyzeContentFreshness(text, metaTags = {}) {
             const date = parseDate(metaTags[field]);
             if (date) {
                 results.dates.push({ date, source: `meta:${field}`, text: metaTags[field] });
-                results.sources.push('meta-tags');
+                if (!results.sources.includes('meta-tags')) {
+                    results.sources.push('meta-tags');
+                }
             }
         }
     });
 
-    // דפוסי תאריכים בטקסט
+    // חיפוש תאריכים בתוכן עצמו
     const datePatterns = [
-        // עברית
-        /(?:פורסם|עודכן|כתב|נוצר|הועלה)\s*(?:ב[-:]?)?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
-        /(?:תאריך|מיום)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        // עברית - דפוסים מורחבים
+        /(?:פורסם|עודכן|כתב|נוצר|הועלה|נכתב|התפרסם)\s*(?:ב[-:]?|ביום)?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(?:תאריך|מיום|ב-?)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:עודכן|פורסם)/gi,
         
-        // אנגלית
-        /(?:published|updated|created|posted|written)\s*(?:on|at)?\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        // אנגלית - דפוסים מורחבים
+        /(?:published|updated|created|posted|written|modified|edited)\s*(?:on|at)?\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
         /(?:date|on)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:updated|published|posted)/gi,
         
-        // פורמטים כלליים
+        // פורמטים כלליים - נוספו פורמטים
         /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\b/g,
         /\b(\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})\b/g,
+        /\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2})\b/g, // שנתיים ספרות
         
-        // ISO dates
+        // ISO dates ותאריכים מלאים
         /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/g,
-        /\b(\d{4}-\d{2}-\d{2})\b/g
+        /\b(\d{4}-\d{2}-\d{2})\b/g,
+        
+        // תאריכים עם שמות חודשים באנגלית
+        /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}/gi,
+        /\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}/gi,
+        
+        // תאריכים עם שמות חודשים בעברית
+        /\b(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+\d{1,2},?\s+\d{4}/gi,
+        /\b\d{1,2}\s+(?:ב)?(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+\d{4}/gi
     ];
 
+    // חיפוש בכל התוכן
     datePatterns.forEach(pattern => {
         let match;
         while ((match = pattern.exec(text)) !== null) {
@@ -273,7 +372,7 @@ function analyzeContentFreshness(text, metaTags = {}) {
                     date, 
                     source: 'content-text', 
                     text: match[0].trim(),
-                    pattern: pattern.source
+                    pattern: pattern.source.substring(0, 50) + '...'
                 });
                 if (!results.sources.includes('content-text')) {
                     results.sources.push('content-text');
@@ -282,8 +381,26 @@ function analyzeContentFreshness(text, metaTags = {}) {
         }
     });
 
+    // חיפוש בתגי content-date שנאספו
+    Object.keys(metaTags).forEach(key => {
+        if (key.startsWith('content-date-') || key.startsWith('time-')) {
+            const date = parseDate(metaTags[key]);
+            if (date && date.getFullYear() > 2000 && date <= new Date()) {
+                results.dates.push({ 
+                    date, 
+                    source: `content-element:${key}`, 
+                    text: metaTags[key] 
+                });
+                if (!results.sources.includes('content-elements')) {
+                    results.sources.push('content-elements');
+                }
+            }
+        }
+    });
+
     // מציאת התאריך האחרון
     if (results.dates.length > 0) {
+        // מיון לפי תאריך (החדש ביותר ראשון)
         results.dates.sort((a, b) => b.date - a.date);
         results.latestDate = results.dates[0].date;
         
@@ -536,49 +653,117 @@ app.post('/api/seo/audit', async (req, res) => {
             };
         });
         
-        // חילוץ תוכן ראשי לניתוחים החדשים
-        const mainContent = await page.evaluate(() => {
+        // חילוץ תוכן ראשי וספירת מילים מדויקת
+        const contentData = await page.evaluate(() => {
             const contentSelectors = [
                 'main', 'article', '.content', '.post-content', '.entry-content',
                 '.article-content', '.page-content', '#content', '.main-content'
             ];
             
+            // selectors לא לכלול
+            const excludeSelectors = [
+                'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
+                '.widget', '.footer', '.header', '.nav', '.breadcrumb', '.breadcrumbs',
+                '.related-posts', '.comments', '.comment', '.social-share', 
+                'script', 'style', 'noscript'
+            ];
+            
+            let contentArea = null;
+            
+            // מצא את אזור התוכן
             for (const selector of contentSelectors) {
                 const element = document.querySelector(selector);
                 if (element) {
-                    return element.innerText || element.textContent || '';
+                    contentArea = element;
+                    break;
                 }
             }
             
-            // fallback לכל הbody אבל נקי יותר
-            const body = document.body;
-            if (body) {
-                // הסר script ו-style tags
-                const clone = body.cloneNode(true);
-                clone.querySelectorAll('script, style, nav, header, footer, .menu, .navigation').forEach(el => el.remove());
-                return clone.innerText || clone.textContent || '';
+            // אם לא מצאנו אזור תוכן ספציפי, השתמש ב-body אבל הוצא את האזורים שלא רוצים
+            if (!contentArea) {
+                contentArea = document.body;
             }
             
-            return '';
+            // יצירת עותק נקי
+            const cleanContent = contentArea.cloneNode(true);
+            
+            // הסר כל האלמנטים שלא רוצים
+            excludeSelectors.forEach(selector => {
+                cleanContent.querySelectorAll(selector).forEach(el => el.remove());
+            });
+            
+            // חילוץ טקסט נקי
+            const mainText = cleanContent.innerText || cleanContent.textContent || '';
+            
+            // ספירת מילים מדויקת
+            const words = mainText.trim()
+                .replace(/\s+/g, ' ') // החלף כמה רווחים ברווח אחד
+                .split(' ')
+                .filter(word => word.length > 0 && /[a-zA-Z\u0590-\u05FF]/.test(word)); // רק מילים עם אותיות
+            
+            // ספירת תמונות בתוכן בלבד
+            const contentImages = Array.from(contentArea.querySelectorAll('img'));
+            const contentImagesFiltered = contentImages.filter(img => {
+                // בדוק אם התמונה נמצאת באזור שלא רוצים
+                for (const excludeSelector of excludeSelectors) {
+                    if (img.closest(excludeSelector)) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+            
+            return {
+                text: mainText,
+                wordCount: words.length,
+                imageCount: contentImagesFiltered.length,
+                imagesWithoutAlt: contentImagesFiltered.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '').length
+            };
         });
 
-        // חילוץ meta tags
+        // חילוץ meta tags מורחב
         const metaTags = await page.evaluate(() => {
             const tags = {};
+            
+            // חיפוש בכל סוגי המטא תגים
             document.querySelectorAll('meta').forEach(meta => {
-                const name = meta.getAttribute('name') || meta.getAttribute('property');
+                const name = meta.getAttribute('name') || meta.getAttribute('property') || meta.getAttribute('itemprop');
                 const content = meta.getAttribute('content');
                 if (name && content) {
                     tags[name] = content;
                 }
             });
+            
+            // חיפוש בתגי time
+            const timeTags = document.querySelectorAll('time[datetime]');
+            timeTags.forEach((time, index) => {
+                tags[`time-${index}`] = time.getAttribute('datetime');
+            });
+            
+            // חיפוש במאמרים בדפוסים נפוצים
+            const dateSelectors = [
+                '.published', '.date-published', '.post-date', '.article-date',
+                '.entry-date', '.created-date', '.updated-date', '.modified-date',
+                '[class*="date"]', '[class*="time"]', '[id*="date"]'
+            ];
+            
+            dateSelectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach((el, index) => {
+                    const text = el.textContent || el.getAttribute('title') || el.getAttribute('datetime');
+                    if (text) {
+                        tags[`content-date-${selector.replace(/[^a-zA-Z]/g, '')}-${index}`] = text.trim();
+                    }
+                });
+            });
+            
             return tags;
         });
 
-        // ניתוחים חדשים
-        const readabilityScore = calculateFleschScore(mainContent);
-        const keywordDensity = analyzeKeywordDensity(mainContent);
-        const contentFreshness = analyzeContentFreshness(mainContent, metaTags);
+        // ניתוחים חדשים עם הנתונים המתוקנים
+        const readabilityScore = calculateFleschScore(contentData.text);
+        const keywordDensity = analyzeKeywordDensity(contentData.text);
+        const contentFreshness = analyzeContentFreshness(contentData.text, metaTags);
         const contentLinks = await getContentInternalLinks(page);
         const clickDepth = calculateClickDepth(url);
         
@@ -607,12 +792,12 @@ app.post('/api/seo/audit', async (req, res) => {
                 h6: document.querySelectorAll('h6').length
             };
             
-            // Images analysis
+            // Images analysis - מבוסס על תמונות בתוכן בלבד
             const images = Array.from(document.querySelectorAll('img'));
             const imageAnalysis = {
-                total: images.length,
-                withAlt: images.filter(img => img.getAttribute('alt')).length,
-                withoutAlt: images.filter(img => !img.getAttribute('alt')).length,
+                total: contentData.imageCount, // מהתוכן בלבד
+                withAlt: contentData.imageCount - contentData.imagesWithoutAlt,
+                withoutAlt: contentData.imagesWithoutAlt,
                 withTitle: images.filter(img => img.getAttribute('title')).length,
                 withLazyLoading: images.filter(img => img.getAttribute('loading') === 'lazy').length,
                 oversized: images.filter(img => {
@@ -641,9 +826,8 @@ app.post('/api/seo/audit', async (req, res) => {
                 broken: [] // Would need additional checking
             };
             
-            // Content analysis
-            const textContent = document.body.textContent || '';
-            const wordCount = textContent.trim().split(/\s+/).length;
+            // Content analysis - עם ספירת מילים מתוקנת
+            const wordCount = contentData.wordCount; // מהתוכן בלבד
             const readingTime = Math.ceil(wordCount / 200); // Average reading speed
             
             // Forms analysis
