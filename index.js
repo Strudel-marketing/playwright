@@ -1,4 +1,495 @@
-// Comprehensive SEO analysis
+if (performanceMetrics.loadTime > 3000) {
+        performanceScore -= 6;
+        issues.push('Slow page load time');
+        recommendations.push('Optimize images and reduce HTTP requests');
+    } else if (performanceMetrics.loadTime > 2000) {
+        performanceScore -= 3;
+        issues.push('Page load time could be improved');
+        recommendations.push('Consider optimizing page load speed');
+    }
+    
+    breakdown.performance = Math.max(0, performanceScore);
+    
+    // Mobile Score (10 points)
+    let mobileScore = 10;
+    
+    if (!seoData.technicalSEO.isResponsive) {
+        mobileScore -= 8;
+        issues.push('Not mobile responsive');
+        recommendations.push('Implement responsive design for mobile devices');
+    }
+    
+    breakdown.mobile = Math.max(0, mobileScore);
+    
+    // Social Score (8 points)
+    let socialScore = 8;
+    
+    if (Object.keys(seoData.socialMeta.openGraph).length === 0) {
+        socialScore -= 4;
+        issues.push('Missing Open Graph tags');
+        recommendations.push('Add Open Graph meta tags for social sharing');
+    }
+    
+    if (Object.keys(seoData.socialMeta.twitterCard).length === 0) {
+        socialScore -= 2;
+        issues.push('Missing Twitter Card tags');
+        recommendations.push('Add Twitter Card meta tags');
+    }
+    
+    breakdown.social = Math.max(0, socialScore);
+    
+    // Structured Data Score (7 points)
+    let structuredScore = 7;
+    
+    if (!seoData.structuredData.hasStructuredData) {
+        structuredScore -= 5;
+        issues.push('No structured data found');
+        recommendations.push('Add Schema.org structured data markup');
+    }
+    
+    breakdown.structured = Math.max(0, structuredScore);
+    
+    // NEW: Readability Score (8 points)
+    let readabilityScore = 8;
+    
+    if (enhancedData.readabilityScore < 30) {
+        readabilityScore -= 6;
+        issues.push('Content is very difficult to read');
+        recommendations.push('Simplify sentences and use shorter words');
+    } else if (enhancedData.readabilityScore < 50) {
+        readabilityScore -= 3;
+        issues.push('Content readability could be improved');
+        recommendations.push('Consider shorter sentences and simpler language');
+    }
+    
+    breakdown.readability = Math.max(0, readabilityScore);
+    
+    // NEW: Content Freshness Score (7 points)
+    let freshnessScore = 7;
+    
+    if (enhancedData.contentFreshness === 'old') {
+        freshnessScore -= 4;
+        issues.push('Content appears to be old');
+        recommendations.push('Update content with recent information');
+    } else if (enhancedData.contentFreshness === 'fresh') {
+        freshnessScore = 7;
+    }
+    
+    breakdown.freshness = Math.max(0, freshnessScore);
+    
+    const totalScore = Object.values(breakdown).reduce((sum, score) => sum + score, 0);
+    const grade = totalScore >= 90 ? 'A' : totalScore >= 80 ? 'B' : totalScore >= 70 ? 'C' : totalScore >= 60 ? 'D' : 'F';
+    
+    return {
+        total: Math.max(0, Math.round(totalScore)),
+        grade,
+        issues,
+        recommendations,
+        breakdown
+    };
+}.loadTime > 3000) {
+        performanceScore -= 6;
+        issues.push('Slow page load time');
+        recommendations.push('Optimize images and reduce HTTP requests');
+    } else if (performanceMetrics.loadTime > 2000) {
+        performanceScore -= 3;
+        issues.push('Page load time could be improved');
+        recommendations.push('Consider optimizing page load speed');
+    }
+    
+    breakdown.performance = Math.max(0, performanceScore);
+    
+    // Mobile Score (10 points)
+    let mobileScore = 10;
+    
+    if (!seoData.technicalSEO.isResponsive) {
+        mobileScore -= 8;
+        issues.push('Not mobile responsive');
+        recommendations.push('Implement responsive design for mobile devices');
+    }
+    
+    breakdown.mobile = Math.max(0, mobileScore);
+    
+    // Social Score (8 points)
+    let socialScore = 8;
+    
+    if (Object.keys(seoData.socialMeta.openGraph).length === 0) {
+        socialScore -= 4;
+        issues.push('Missing Open Graph tags');
+        recommendations.push('Add Open Graph meta tags for social sharing');
+    }
+    
+    if (Object.keys(seoData.socialMeta.twitterCard).length === 0) {
+        socialScore -= 2;
+        issues.push('Missing Twitter Card tags');
+        recommendations.push('Add Twitter Card meta tags');
+    }
+    
+    breakdown.social = Math.max(0, socialScore);
+    
+    // Structured Data Score (7 points)
+    let structuredScore = 7;
+    
+    if (!seoData.structuredData.hasStructuredData) {
+        structuredScore -= 5;
+        issues.push('No structured data found');
+        recommendations.push('Add Schema.org structured data markup');
+    }
+    
+    breakdown.structured = Math.max(0, structuredScore);
+    
+    // NEW: Readability Score (8 points)
+    let readabilityScore = 8;
+    
+    if (enhancedData.readabilityScore < 30) {
+        readabilityScore -= 6;
+        issues.push('Content is very difficult to read');
+        recommendations.push('Simplify sentences and use shorter words');
+    } else if (enhancedData.readabilityScore < 50) {
+        readabilityScore -= 3;
+        issues.push('Content readability could be improved');
+        recommendations.push('Consider shorter sentences and simpler language');
+    }
+    
+    breakdown.readability = Math.max(0, readabilityScore);
+    
+    // NEW: Content Freshness Score (7 points)
+    let freshnessScore = 7;
+    
+    if (enhancedData.contentFreshness === 'old') {
+        freshnessScore -= 4;
+        issues.push('Content appears to be old');
+        recommendations.push('Update content with recent information');
+    } else if (enhancedData.contentFreshness === 'fresh') {
+        freshnessScore = 7;
+    }
+    
+    breakdown.freshness = Math.max(0, freshnessScore);
+    
+    const totalScore = Object.values(breakdown).reduce((sum, score) => sum + score, 0);
+    const grade = totalScore >= 90 ? 'A' : totalScore >= 80 ? 'B' : totalScore >= 70 ? 'C' : totalScore >= 60 ? 'D' : 'F';
+    
+    return {
+        total: Math.max(0, Math.round(totalScore)),
+        grade,
+        issues,
+        recommendations,
+        breakdown
+    };
+}
+
+// Extract all schema types from page
+async function extractAllSchemas(page, options = {}) {
+    const results = {};
+    
+    try {
+        results.jsonLD = await page.evaluate(() => {
+            const scripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+            return scripts.map(script => {
+                try {
+                    return JSON.parse(script.textContent);
+                } catch (e) {
+                    return null;
+                }
+            }).filter(Boolean);
+        });
+    } catch (e) {
+        results.jsonLD = [];
+    }
+    
+    try {
+        results.microdata = await page.evaluate(() => {
+            const items = Array.from(document.querySelectorAll('[itemscope]'));
+            return items.map(item => {
+                const type = item.getAttribute('itemtype');
+                const properties = {};
+                
+                const props = Array.from(item.querySelectorAll('[itemprop]'));
+                props.forEach(prop => {
+                    const name = prop.getAttribute('itemprop');
+                    const value = prop.getAttribute('content') || 
+                                 prop.getAttribute('datetime') ||
+                                 prop.textContent.trim();
+                    properties[name] = value;
+                });
+                
+                return { type, properties };
+            });
+        });
+    } catch (e) {
+        results.microdata = [];
+    }
+    
+    try {
+        results.openGraph = await page.evaluate(() => {
+            const ogTags = Array.from(document.querySelectorAll('meta[property^="og:"]'));
+            const og = {};
+            ogTags.forEach(tag => {
+                const property = tag.getAttribute('property').replace('og:', '');
+                const content = tag.getAttribute('content');
+                og[property] = content;
+            });
+            return og;
+        });
+    } catch (e) {
+        results.openGraph = {};
+    }
+    
+    try {
+        results.twitterCard = await page.evaluate(() => {
+            const twitterTags = Array.from(document.querySelectorAll('meta[name^="twitter:"]'));
+            const twitter = {};
+            twitterTags.forEach(tag => {
+                const name = tag.getAttribute('name').replace('twitter:', '');
+                const content = tag.getAttribute('content');
+                twitter[name] = content;
+            });
+            return twitter;
+        });
+    } catch (e) {
+        results.twitterCard = {};
+    }
+    
+    try {
+        results.seoMeta = await page.evaluate(() => ({
+            title: document.title,
+            description: document.querySelector('meta[name="description"]')?.getAttribute('content'),
+            keywords: document.querySelector('meta[name="keywords"]')?.getAttribute('content'),
+            canonical: document.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+            robots: document.querySelector('meta[name="robots"]')?.getAttribute('content')
+        }));
+    } catch (e) {
+        results.seoMeta = {};
+    }
+    
+    return results;
+}
+
+// Cleanup old screenshots (older than 7 days)
+function cleanupOldScreenshots() {
+    const fs = require('fs');
+    const path = require('path');
+    const screenshotsDir = '/app/screenshots';
+    
+    try {
+        if (fs.existsSync(screenshotsDir)) {
+            const files = fs.readdirSync(screenshotsDir);
+            const now = Date.now();
+            const sevenDays = 7 * 24 * 60 * 60 * 1000;
+            
+            files.forEach(file => {
+                const filePath = path.join(screenshotsDir, file);
+                const stats = fs.statSync(filePath);
+                
+                if (now - stats.mtime.getTime() > sevenDays) {
+                    fs.unlinkSync(filePath);
+                    console.log(`🗑️ Cleaned up old screenshot: ${file}`);
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error cleaning up screenshots:', error);
+    }
+}
+
+const app = express();
+const schemaValidator = new SmartSchemaValidator();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json({ limit: '50mb' }));
+app.use(bodyParser.urlencoded({ extended: true }));
+
+// Static files serving for screenshots
+app.use('/screenshots', express.static('/app/screenshots', {
+    maxAge: '7d',
+    setHeaders: (res, path) => {
+        res.setHeader('Content-Type', 'image/png');
+    }
+}));
+
+// Global browser instance
+let globalBrowser = null;
+
+// Initialize browser
+async function initBrowser() {
+    try {
+        globalBrowser = await chromium.launch({
+            headless: true,
+            args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-blink-features=AutomationControlled'
+            ]
+        });
+        console.log('🎭 Playwright browser initialized');
+    } catch (error) {
+        console.error('Failed to initialize browser:', error);
+    }
+}
+
+// Health Check
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        service: 'Playwright Universal Automation API',
+        version: '2.1.0',
+        features: [
+            'comprehensive-seo-analysis',
+            'structured-data-extraction', 
+            'performance-monitoring',
+            'accessibility-check',
+            'mobile-optimization',
+            'core-web-vitals',
+            'screenshots',
+            'schema-extraction',
+            'readability-analysis',
+            'keyword-density',
+            'content-freshness',
+            'click-depth-analysis'
+        ],
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Enhanced SEO Audit Endpoint with all new features
+app.post('/api/seo/audit', async (req, res) => {
+    const { url, includeScreenshot = false, detailed = true } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        const startTime = Date.now();
+        
+        const response = await page.goto(url, { waitUntil: 'networkidle' });
+        const loadTime = Date.now() - startTime;
+        const statusCode = response.status();
+        
+        const statusChecks = {
+            is_4xx_code: statusCode >= 400 && statusCode < 500,
+            is_5xx_code: statusCode >= 500,
+            is_redirect: statusCode >= 300 && statusCode < 400
+        };
+        
+        const performanceMetrics = await page.evaluate(() => {
+            const perfData = performance.getEntriesByType('navigation')[0];
+            const paintMetrics = performance.getEntriesByType('paint');
+            
+            return {
+                loadTime: perfData?.loadEventEnd - perfData?.loadEventStart || 0,
+                domContentLoaded: perfData?.domContentLoadedEventEnd - perfData?.domContentLoadedEventStart || 0,
+                firstContentfulPaint: paintMetrics.find(m => m.name === 'first-contentful-paint')?.startTime || 0,
+                largestContentfulPaint: paintMetrics.find(m => m.name === 'largest-contentful-paint')?.startTime || 0,
+                timeToInteractive: perfData?.loadEventEnd || 0
+            };
+        });
+
+        // חילוץ meta tags מורחב ומשופר
+        const metaTags = await page.evaluate(() => {
+            const tags = {};
+            
+            document.querySelectorAll('meta').forEach(meta => {
+                const name = meta.getAttribute('name') || meta.getAttribute('property') || meta.getAttribute('itemprop');
+                const content = meta.getAttribute('content');
+                if (name && content) {
+                    tags[name] = content;
+                }
+            });
+            
+            const timeTags = document.querySelectorAll('time[datetime]');
+            timeTags.forEach((time, index) => {
+                tags[`time-${index}`] = time.getAttribute('datetime');
+            });
+            
+            const timeTagsText = document.querySelectorAll('time:not([datetime])');
+            timeTagsText.forEach((time, index) => {
+                const text = time.textContent.trim();
+                if (text) {
+                    tags[`time-text-${index}`] = text;
+                }
+            });
+            
+            const dateSelectors = [
+                '.published', '.date-published', '.post-date', '.article-date',
+                '.entry-date', '.created-date', '.updated-date', '.modified-date',
+                '.publish-date', '.publication-date', '.timestamp', '.date-time',
+                '[class*="date"]', '[class*="time"]', '[id*="date"]', '[id*="time"]',
+                '.byline', '.dateline', '.post-meta .date', '.entry-meta .date',
+                '.article-meta .date', '.meta-date', '.date-meta'
+            ];
+            
+            dateSelectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach((el, index) => {
+                    const text = el.textContent || el.getAttribute('title') || 
+                                el.getAttribute('datetime') || el.getAttribute('data-date');
+                    if (text && text.trim()) {
+                        tags[`content-date-${selector.replace(/[^a-zA-Z]/g, '')}-${index}`] = text.trim();
+                    }
+                });
+            });
+            
+            const textElements = document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6');
+            let dateTextIndex = 0;
+            textElements.forEach(el => {
+                const text = el.textContent;
+                if (text && text.length < 200) {
+                    const datePattern = /(?:published|updated|created|posted|written|modified|edited|פורסם|עודכן|כתב|נוצר)\s*(?:on|at|ב|ביום)?\s*[:\-]?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i;
+                    if (datePattern.test(text)) {
+                        tags[`text-date-${dateTextIndex++}`] = text.trim();
+                    }
+                }
+            });
+            
+            const jsonLDScripts = document.querySelectorAll('script[type="application/ld+json"]');
+            jsonLDScripts.forEach((script, index) => {
+                try {
+                    const data = JSON.parse(script.textContent);
+                    
+                    function extractDates(obj, prefix = '') {
+                        if (!obj || typeof obj !== 'object') return;
+                        
+                        Object.keys(obj).forEach(key => {
+                            if (key.toLowerCase().includes('date') || 
+                                key.toLowerCase().includes('published') || 
+                                key.toLowerCase().includes('modified')) {
+                                const value = obj[key];
+                                if (typeof value === 'string' && value) {
+                                    tags[`jsonld-${prefix}${key}-${index}`] = value;
+                                }
+                            } else if (typeof obj[key] === 'object') {
+                                extractDates(obj[key], `${prefix}${key}-`);
+                            }
+                        });
+                    }
+                    
+                    if (Array.isArray(data)) {
+                        data.forEach((item, i) => extractDates(item, `item${i}-`));
+                    } else {
+                        extractDates(data);
+                    }
+                } catch (e) {
+                    // שגיאה בפרסור JSON
+                }
+            });
+            
+            return tags;
+        });
+
+        // Comprehensive SEO analysis
         const seoData = await page.evaluate(() => {
             // פונקציה לניקוי טקסט ומציאת התוכן הראשי
             function findMainContent() {
@@ -333,457 +824,7 @@
             score: enhancedSeoScore.total,
             grade: enhancedSeoScore.grade,
             issues: enhancedSeoScore.issues,
-            recommendations: enhancedSeoScore.recommendations,
-            seoData: seoData,
-            readabilityScore: readabilityScore,
-            keywordDensity: keywordDensity,
-            contentFreshness: contentFreshness,
-            contentLinks: contentLinks,
-            clickDepth: clickDepth,
-            checks: {
-                ...seoData.checks,
-                ...statusChecks
-            },
-            performance: {
-                ...performanceMetrics,
-                loadTime: loadTime,
-                scoreBreakdown: enhancedSeoScore.breakdown
-            },
-            debug: {
-                contentExtraction: extractedContentData.debug,
-                metaTagsCount: Object.keys(metaTags).length,
-                contentFreshnessDebug: contentFreshness.debug,
-                keywordAnalysisDebug: keywordDensity.debug
-            }
-        };
-        
-        if (includeScreenshot) {
-            const screenshotPath = `/tmp/seo_audit_${Date.now()}.png`;
-            await page.screenshot({ 
-                path: screenshotPath, 
-                fullPage: true,
-                timeout: 30000
-            });
-            result.screenshot = `file://${screenshotPath}`;
-        }
-        
-        res.json({
-            success: true,
-            result: result
-        });
-        
-    } catch (error) {
-        console.error('SEO audit error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            url: url
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Schema Extraction Endpoint
-app.post('/api/extract/schema', async (req, res) => {
-    const { url, options = {} } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        const extractedData = await extractAllSchemas(page, options);
-        
-        res.json({
-            success: true,
-            url: url,
-            timestamp: new Date().toISOString(),
-            data: extractedData
-        });
-        
-    } catch (error) {
-        console.error('Schema extraction error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            url: url
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Quick Schema Check
-app.post('/api/extract/quick-check', async (req, res) => {
-    const { url } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        const quickCheck = await page.evaluate(() => {
-            const hasJsonLD = document.querySelectorAll('script[type="application/ld+json"]').length > 0;
-            const hasMicrodata = document.querySelectorAll('[itemscope]').length > 0;
-            const hasOpenGraph = document.querySelectorAll('meta[property^="og:"]').length > 0;
-            const hasTwitterCard = document.querySelectorAll('meta[name^="twitter:"]').length > 0;
-            const hasSchemaTypes = [];
-            
-            const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
-            jsonLDScripts.forEach(script => {
-                try {
-                    const data = JSON.parse(script.textContent);
-                
-                    function extractTypes(obj) {
-                        if (!obj) return;
-                        
-                        if (typeof obj === 'object') {
-                            if (obj['@type']) {
-                                if (Array.isArray(obj['@type'])) {
-                                    hasSchemaTypes.push(...obj['@type']);
-                                } else {
-                                    hasSchemaTypes.push(obj['@type']);
-                                }
-                            }
-                            
-                            Object.values(obj).forEach(value => {
-                                if (Array.isArray(value)) {
-                                    value.forEach(item => extractTypes(item));
-                                } else if (typeof value === 'object') {
-                                    extractTypes(value);
-                                }
-                            });
-                        }
-                    }
-                
-                    if (Array.isArray(data)) {
-                        data.forEach(item => extractTypes(item));
-                    } else {
-                        extractTypes(data);
-                    }
-                    
-                } catch (e) {
-                    console.log('Error parsing JSON-LD:', e);
-                }
-            });
-            
-            return {
-                hasStructuredData: hasJsonLD || hasMicrodata,
-                hasJsonLD,
-                hasMicrodata,
-                hasOpenGraph,
-                hasTwitterCard,
-                schemaTypes: [...new Set(hasSchemaTypes)],
-                structuredDataScore: (hasJsonLD ? 40 : 0) + 
-                                  (hasMicrodata ? 30 : 0) + 
-                                  (hasOpenGraph ? 20 : 0) + 
-                                  (hasTwitterCard ? 10 : 0)
-            };
-        });
-
-        res.json({
-            success: true,
-            url: url,
-            quickCheck: quickCheck,
-            recommendation: quickCheck.structuredDataScore < 50 ? 
-                'Consider adding more structured data markup' : 
-                'Good structured data implementation'
-        });
-
-    } catch (error) {
-        console.error('Quick check error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});     
-
-// Screenshot endpoint
-app.post('/api/screenshot', async (req, res) => {
-    const { url, options = {} } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        if (options.viewport) {
-            await page.setViewportSize(options.viewport);
-        }
-        
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        if (options.blockPopups) {
-            await page.addInitScript(() => {
-                window.alert = () => {};
-                window.confirm = () => true;
-                window.prompt = () => '';
-            });
-        }
-        
-        const filename = `screenshot_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.png`;
-        const screenshotOptions = {
-            path: `/app/screenshots/${filename}`,
-            fullPage: options.fullPage !== false,
-            ...options
-        };
-        
-        if (options.selector) {
-            const element = await page.$(options.selector);
-            if (element) {
-                await element.screenshot(screenshotOptions);
-            } else {
-                throw new Error(`Element with selector "${options.selector}" not found`);
-            }
-        } else {
-            await page.screenshot(screenshotOptions);
-        }
-        
-        res.json({
-            success: true,
-            result: {
-                filename: filename,
-                url: `https://playwright.strudel.marketing/screenshots/${filename}`,
-                localPath: screenshotOptions.path,
-                originalUrl: url,
-                options: options,
-                expiresIn: '7 days'
-            }
-        });
-        
-    } catch (error) {
-        console.error('Screenshot error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Advanced Schema Validation Endpoint
-app.post('/api/validate/schema', async (req, res) => {
-    const { url, validateAll = true } = req.body;
-    
-    if (!url) {
-        return res.status(400).json({
-            success: false,
-            error: 'URL is required'
-        });
-    }
-
-    const browser = globalBrowser || await chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    
-    const page = await browser.newPage();
-    
-    try {
-        await page.goto(url, { waitUntil: 'networkidle' });
-        
-        const extractedData = await extractAllSchemas(page);
-        
-        const validationResults = {
-            url: url,
-            timestamp: new Date().toISOString(),
-            overallScore: 0,
-            schemasFound: extractedData.jsonLD.length + extractedData.microdata.length,
-            schemas: [],
-            summary: {
-                totalSchemas: 0,
-                validSchemas: 0,
-                errorsFound: 0,
-                warningsFound: 0
-            }
-        };
-        
-        if (extractedData.jsonLD && extractedData.jsonLD.length > 0) {
-            for (const schema of extractedData.jsonLD) {
-                if (schema['@type']) {
-                    const validation = schemaValidator.validateSchema(schema);
-                    
-                    validationResults.schemas.push({
-                        type: schema['@type'],
-                        format: 'JSON-LD',
-                        valid: validation.valid,
-                        score: validation.score,
-                        completeness: validation.completeness || 0,
-                        authorityScore: validation.authorityScore || 0,
-                        errors: validation.errors,
-                        warnings: validation.warnings || [],
-                        recommendations: validation.recommendations || [],
-                        schema: validateAll ? schema : undefined
-                    });
-                    
-                    validationResults.summary.totalSchemas++;
-                    if (validation.valid) validationResults.summary.validSchemas++;
-                    validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += (validation.warnings || []).length;
-                }
-            }
-        }
-        
-        if (extractedData.microdata && extractedData.microdata.length > 0) {
-            for (const microdata of extractedData.microdata) {
-                if (microdata.type) {
-                    const schemaType = microdata.type.split('/').pop();
-                    const convertedSchema = {
-                        '@context': 'https://schema.org',
-                        '@type': schemaType,
-                        ...microdata.properties
-                    };
-                    
-                    const validation = schemaValidator.validateSchema(convertedSchema);
-                    
-                    validationResults.schemas.push({
-                        type: schemaType,
-                        format: 'Microdata',
-                        valid: validation.valid,
-                        score: validation.score,
-                        completeness: validation.completeness || 0,
-                        authorityScore: validation.authorityScore || 0,
-                        errors: validation.errors,
-                        warnings: validation.warnings || [],
-                        recommendations: validation.recommendations || [],
-                        schema: validateAll ? convertedSchema : undefined
-                    });
-                    
-                    validationResults.summary.totalSchemas++;
-                    if (validation.valid) validationResults.summary.validSchemas++;
-                    validationResults.summary.errorsFound += validation.errors.length;
-                    validationResults.summary.warningsFound += (validation.warnings || []).length;
-                }
-            }
-        }
-        
-        if (validationResults.schemas.length > 0) {
-            const avgScore = validationResults.schemas.reduce((sum, schema) => sum + schema.score, 0) / validationResults.schemas.length;
-            validationResults.overallScore = Math.round(avgScore);
-        }
-        
-        validationResults.generalRecommendations = [];
-        
-        if (validationResults.summary.totalSchemas === 0) {
-            validationResults.generalRecommendations.push('No structured data found. Consider adding Schema.org markup for better SEO.');
-        } else if (validationResults.summary.validSchemas < validationResults.summary.totalSchemas) {
-            validationResults.generalRecommendations.push('Some schemas have validation errors. Fix them for better search engine understanding.');
-        }
-        
-        if (Object.keys(extractedData.openGraph).length === 0) {
-            validationResults.generalRecommendations.push('Add Open Graph meta tags for better social media sharing.');
-        }
-        
-        if (Object.keys(extractedData.twitterCard).length === 0) {
-            validationResults.generalRecommendations.push('Add Twitter Card meta tags for better Twitter sharing.');
-        }
-        
-        res.json({
-            success: true,
-            result: validationResults
-        });
-        
-    } catch (error) {
-        console.error('Schema validation error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            url: url
-        });
-    } finally {
-        await page.close();
-        if (!globalBrowser) {
-            await browser.close();
-        }
-    }
-});
-
-// Run cleanup every 24 hours
-setInterval(cleanupOldScreenshots, 24 * 60 * 60 * 1000);
-
-// Initialize browser on startup
-initBrowser();
-
-// Clean up old screenshots on startup
-cleanupOldScreenshots();
-
-// Start server
-app.listen(PORT, () => {
-    console.log(`🚀 Playwright Universal Automation API running on port ${PORT}`);
-    console.log(`📊 Available endpoints:`);
-    console.log(`   GET  /health - Service health check`);
-    console.log(`   POST /api/seo/audit - Enhanced SEO analysis with readability, keywords & freshness`);
-    console.log(`   POST /api/extract/schema - Schema extraction`);
-    console.log(`   POST /api/extract/quick-check - Quick structured data check`);
-    console.log(`   POST /api/screenshot - Advanced screenshots`);
-    console.log(`   POST /api/validate/schema - Schema validation`);
-});
-
-// Cleanup on exit
-process.on('SIGTERM', async () => {
-    if (globalBrowser) {
-        await globalBrowser.close();
-    }
-    process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-    if (globalBrowser) {
-        await globalBrowser.close();
-    }
-    process.exit(0);
-});const express = require('express');
+            const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
@@ -924,6 +965,149 @@ function calculateFleschScore(text, language = 'english') {
             avgSyllablesPerWord: Math.round(avgSyllablesPerWord * 10) / 10,
             totalSyllables
         }
+    };
+}
+
+// פונקציה להגדרת קטגוריית מילת מפתח
+function getKeywordCategory(count, totalWords) {
+    const density = (count / totalWords) * 100;
+    
+    if (density >= 5) return 'high';
+    if (density >= 2) return 'optimal';
+    if (density >= 1) return 'moderate';
+    return 'low';
+}
+
+// פונקציה להמלצות על מילות מפתח
+function getKeywordRecommendation(count, totalWords, wordCount) {
+    const density = (count / totalWords) * 100;
+    
+    if (density >= 5) {
+        return 'Consider reducing usage - may be seen as keyword stuffing';
+    }
+    if (density >= 2 && density < 5) {
+        return 'Good keyword density - well optimized';
+    }
+    if (density >= 1 && density < 2) {
+        return 'Moderate usage - could be increased slightly';
+    }
+    if (wordCount > 2) {
+        return 'Good long-tail keyword - valuable for SEO';
+    }
+    return 'Low density - consider using more frequently';
+}
+
+// פונקציה לניתוח keyword density - משופרת
+function analyzeKeywordDensity(text) {
+    if (!text || text.trim().length === 0) {
+        return { 
+            topKeywords: [], 
+            totalWords: 0, 
+            filteredWords: 0,
+            language: 'unknown',
+            error: 'No text provided' 
+        };
+    }
+
+    const hasHebrew = /[\u0590-\u05FF]/.test(text);
+    const hasEnglish = /[a-zA-Z]/.test(text);
+    const language = hasHebrew && hasEnglish ? 'mixed' : hasHebrew ? 'hebrew' : 'english';
+    
+    const cleanText = text.toLowerCase()
+                         .replace(/[^\u0590-\u05FFa-zA-Z0-9\s]/g, ' ')
+                         .replace(/\s+/g, ' ')
+                         .trim();
+
+    const allWords = cleanText.split(/\s+/).filter(w => {
+        const cleanWord = w.replace(/[^a-zA-Z\u0590-\u05FF]/g, '');
+        return cleanWord.length >= 2;
+    });
+    
+    if (allWords.length === 0) {
+        return { 
+            topKeywords: [], 
+            totalWords: 0, 
+            filteredWords: 0,
+            language: language,
+            error: 'No valid words found' 
+        };
+    }
+
+    const stopWords = new Set([
+        ...(hasHebrew ? STOP_WORDS.hebrew : []),
+        ...(hasEnglish ? STOP_WORDS.english : [])
+    ]);
+    
+    const filteredWords = allWords.filter(word => {
+        const cleanWord = word.replace(/[^a-zA-Z\u0590-\u05FF]/g, '');
+        return !stopWords.has(cleanWord) && cleanWord.length >= 2;
+    });
+    
+    if (filteredWords.length < 3) {
+        return { 
+            topKeywords: [], 
+            totalWords: allWords.length, 
+            filteredWords: filteredWords.length,
+            language: language,
+            error: 'Insufficient keywords after filtering stop words (need at least 3)' 
+        };
+    }
+
+    const sequences = new Map();
+    const maxSequenceLength = Math.min(4, Math.floor(filteredWords.length / 3));
+    
+    for (let length = 1; length <= maxSequenceLength; length++) {
+        for (let i = 0; i <= filteredWords.length - length; i++) {
+            const sequence = filteredWords.slice(i, i + length).join(' ');
+            
+            if (!/^\d+(\s+\d+)*$/.test(sequence)) {
+                sequences.set(sequence, (sequences.get(sequence) || 0) + 1);
+            }
+        }
+    }
+
+    const minOccurrences = Math.max(2, Math.floor(allWords.length / 50));
+    const maxOccurrences = Math.floor(allWords.length * 0.15);
+    
+    const validSequences = Array.from(sequences.entries())
+        .filter(([sequence, count]) => {
+            return count >= minOccurrences && count <= maxOccurrences;
+        })
+        .map(([sequence, count]) => ({
+            keyword: sequence,
+            count: count,
+            density: Math.round((count / allWords.length) * 100 * 100) / 100,
+            wordCount: sequence.split(' ').length,
+            category: getKeywordCategory(count, allWords.length),
+            recommendation: getKeywordRecommendation(count, allWords.length, sequence.split(' ').length)
+        }))
+        .sort((a, b) => {
+            if (Math.abs(a.density - b.density) < 0.1) {
+                return b.wordCount - a.wordCount;
+            }
+            return b.density - a.density;
+        })
+        .slice(0, 10);
+
+    return {
+        topKeywords: validSequences,
+        totalWords: allWords.length,
+        filteredWords: filteredWords.length,
+        language: language,
+        averageDensity: validSequences.length > 0 ? 
+            Math.round((validSequences.reduce((sum, kw) => sum + kw.density, 0) / validSequences.length) * 100) / 100 : 0,
+        totalKeywordOccurrences: validSequences.reduce((sum, kw) => sum + kw.count, 0),
+        keywordCoverage: validSequences.length > 0 ? 
+            Math.round((validSequences.reduce((sum, kw) => sum + kw.count, 0) / allWords.length) * 100 * 100) / 100 : 0,
+        debug: {
+            minOccurrences,
+            maxOccurrences,
+            totalSequences: sequences.size,
+            validSequencesCount: validSequences.length
+        }
+    };
+}
+
 // פונקציה לפירוס תאריכים
 function parseDate(dateStr) {
     if (!dateStr) return null;
