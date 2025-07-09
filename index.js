@@ -893,9 +893,16 @@ app.get('/api/extract/quick-check', async (req, res) => {
     const page = await browser.newPage();
     
     try {
+        // הגדרת timeout גלובלי לדף
+        page.setDefaultTimeout(timeout);
+        page.setDefaultNavigationTimeout(timeout);
+        
         const startTime = Date.now();
         
-        const response = await page.goto(url, { waitUntil: 'networkidle' });
+        const response = await page.goto(url, { 
+            waitUntil: waitUntil,
+            timeout: timeout 
+        });
         const loadTime = Date.now() - startTime;
         const statusCode = response.status();
         
@@ -1400,21 +1407,604 @@ app.get('/api/extract/quick-check', async (req, res) => {
             }
         };
 
-        // Add debug information if detailed analysis requested
-        if (detailed) {
-            apiResponse.data.debug = {
-                metaTagsExtracted: Object.keys(metaTags).length,
-                contentExtractionMethod: 'advanced-content-area-detection',
-                readabilityLanguage: readabilityScore.details ? 'detected' : 'unknown',
-                keywordLanguage: keywordDensity.language,
-                freshnessAnalysis: {
-                    datesFound: contentFreshness.dates.length,
-                    sourcesUsed: contentFreshness.sources,
-                    latestDate: contentFreshness.latestDate
+        // Add debug information - always detailed
+        apiResponse.data.debug = {
+            metaTagsExtracted: Object.keys(metaTags).length,
+            contentExtractionMethod: 'advanced-content-area-detection',
+            readabilityLanguage: readabilityScore.details ? 'detected' : 'unknown',
+            keywordLanguage: keywordDensity.language,
+            freshnessAnalysis: {
+                datesFound: contentFreshness.dates.length,
+                sourcesUsed: contentFreshness.sources,
+                latestDate: contentFreshness.latestDate
+            },
+            timeouts: {
+                pageTimeout: timeout,
+                waitUntil: waitUntil,
+                actualLoadTime: loadTime
+            }
+        };
+
+        res.json(apiResponse);
+
+    } catch (error) {
+        console.error('SEO Audit Error:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Failed to analyze URL',
+            details: error.message
+        });
+    } finally {
+        if (page) {
+            await page.close();
+        }
+    }
+});
+
+// Enhanced SEO Audit Endpoint - FIRST PRIORITY
+app.post('/api/seo/audit', async (req, res) => {
+    console.log('🔍 SEO Audit endpoint hit with body:', req.body);
+    
+    const { url, includeScreenshot = true, options = {} } = req.body;
+    
+    if (!url) {
+        console.log('❌ No URL provided');
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    console.log(`📊 Starting SEO audit for: ${url}`);
+
+    // Support for legacy options format with better defaults
+    const timeout = options.timeout || 30000;
+    const waitUntil = options.waitUntil || 'domcontentloaded';
+
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        // הגדרת timeout גלובלי לדף
+        page.setDefaultTimeout(timeout);
+        page.setDefaultNavigationTimeout(timeout);
+        
+        const startTime = Date.now();
+        
+        const response = await page.goto(url, { 
+            waitUntil: waitUntil,
+            timeout: timeout 
+        });
+        const loadTime = Date.now() - startTime;
+        const statusCode = response.status();
+        
+        console.log(`✅ Page loaded in ${loadTime}ms with status ${statusCode}`);
+        
+        const statusChecks = {
+            is_4xx_code: statusCode >= 400 && statusCode < 500,
+            is_5xx_code: statusCode >= 500,
+            is_redirect: statusCode >= 300 && statusCode < 400
+        };
+        
+        const performanceMetrics = await page.evaluate(() => {
+            const perfData = performance.getEntriesByType('navigation')[0];
+            const paintMetrics = performance.getEntriesByType('paint');
+            
+            return {
+                loadTime: perfData?.loadEventEnd - perfData?.loadEventStart || 0,
+                domContentLoaded: perfData?.domContentLoadedEventEnd - perfData?.domContentLoadedEventStart || 0,
+                firstContentfulPaint: paintMetrics.find(m => m.name === 'first-contentful-paint')?.startTime || 0,
+                largestContentfulPaint: paintMetrics.find(m => m.name === 'largest-contentful-paint')?.startTime || 0,
+                timeToInteractive: perfData?.loadEventEnd || 0
+            };
+        });
+
+        // חילוץ meta tags מורחב ומשופר
+        const metaTags = await page.evaluate(() => {
+            const tags = {};
+            
+            document.querySelectorAll('meta').forEach(meta => {
+                const name = meta.getAttribute('name') || meta.getAttribute('property') || meta.getAttribute('itemprop');
+                const content = meta.getAttribute('content');
+                if (name && content) {
+                    tags[name] = content;
+                }
+            });
+            
+            const timeTags = document.querySelectorAll('time[datetime]');
+            timeTags.forEach((time, index) => {
+                tags[`time-${index}`] = time.getAttribute('datetime');
+            });
+            
+            const timeTagsText = document.querySelectorAll('time:not([datetime])');
+            timeTagsText.forEach((time, index) => {
+                const text = time.textContent.trim();
+                if (text) {
+                    tags[`time-text-${index}`] = text;
+                }
+            });
+            
+            const dateSelectors = [
+                '.published', '.date-published', '.post-date', '.article-date',
+                '.entry-date', '.created-date', '.updated-date', '.modified-date',
+                '.publish-date', '.publication-date', '.timestamp', '.date-time',
+                '[class*="date"]', '[class*="time"]', '[id*="date"]', '[id*="time"]',
+                '.byline', '.dateline', '.post-meta .date', '.entry-meta .date',
+                '.article-meta .date', '.meta-date', '.date-meta'
+            ];
+            
+            dateSelectors.forEach(selector => {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach((el, index) => {
+                    const text = el.textContent || el.getAttribute('title') || 
+                                el.getAttribute('datetime') || el.getAttribute('data-date');
+                    if (text && text.trim()) {
+                        tags[`content-date-${selector.replace(/[^a-zA-Z]/g, '')}-${index}`] = text.trim();
+                    }
+                });
+            });
+            
+            const textElements = document.querySelectorAll('p, div, span, h1, h2, h3, h4, h5, h6');
+            let dateTextIndex = 0;
+            textElements.forEach(el => {
+                const text = el.textContent;
+                if (text && text.length < 200) {
+                    const datePattern = /(?:published|updated|created|posted|written|modified|edited|פורסם|עודכן|כתב|נוצר)\s*(?:on|at|ב|ביום)?\s*[:\-]?\s*\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}/i;
+                    if (datePattern.test(text)) {
+                        tags[`text-date-${dateTextIndex++}`] = text.trim();
+                    }
+                }
+            });
+            
+            const jsonLDScripts = document.querySelectorAll('script[type="application/ld+json"]');
+            jsonLDScripts.forEach((script, index) => {
+                try {
+                    const data = JSON.parse(script.textContent);
+                    
+                    function extractDates(obj, prefix = '') {
+                        if (!obj || typeof obj !== 'object') return;
+                        
+                        Object.keys(obj).forEach(key => {
+                            if (key.toLowerCase().includes('date') || 
+                                key.toLowerCase().includes('published') || 
+                                key.toLowerCase().includes('modified')) {
+                                const value = obj[key];
+                                if (typeof value === 'string' && value) {
+                                    tags[`jsonld-${prefix}${key}-${index}`] = value;
+                                }
+                            } else if (typeof obj[key] === 'object') {
+                                extractDates(obj[key], `${prefix}${key}-`);
+                            }
+                        });
+                    }
+                    
+                    if (Array.isArray(data)) {
+                        data.forEach((item, i) => extractDates(item, `item${i}-`));
+                    } else {
+                        extractDates(data);
+                    }
+                } catch (e) {
+                    // שגיאה בפרסור JSON
+                }
+            });
+            
+            return tags;
+        });
+
+        // Comprehensive SEO analysis
+        const seoData = await page.evaluate(() => {
+            // פונקציה לניקוי טקסט ומציאת התוכן הראשי
+            function findMainContent() {
+                const contentSelectors = [
+                    'main', 'article', '[role="main"]', '#main', '#content', '.main',
+                    '.content', '.post-content', '.entry-content', '.article-content', 
+                    '.page-content', '.main-content', '.site-content', '.primary-content',
+                    '.post-body', '.entry-body', '.article-body', '.content-area',
+                    '.single-content', '.page-wrapper', '.container .content',
+                    'div[id*="content"]', 'div[class*="content"]', 'div[class*="post"]',
+                    'div[class*="article"]', 'section[class*="content"]'
+                ];
+                
+                const excludeSelectors = [
+                    'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
+                    '.widget', '.footer', '.header', '.nav', '.breadcrumb', '.breadcrumbs',
+                    '.related-posts', '.comments', '.comment', '.social-share', 
+                    'script', 'style', 'noscript', '.advertisement', '.ads', '.banner',
+                    '.popup', '.modal', '.overlay', '.cookie', '.newsletter-signup',
+                    '.share-buttons', '.social-buttons', '.tags', '.categories',
+                    '.author-bio', '.author-info', '.meta', '.metadata', '.byline',
+                    'aside', '[role="complementary"]', '[role="banner"]', '[role="contentinfo"]',
+                    'form', 'iframe', 'video', 'audio', 'embed', 'object'
+                ];
+                
+                let contentArea = null;
+                let maxScore = 0;
+                
+                for (const selector of contentSelectors) {
+                    const elements = document.querySelectorAll(selector);
+                    elements.forEach(element => {
+                        let isExcluded = false;
+                        for (const excludeSelector of excludeSelectors) {
+                            if (element.closest(excludeSelector) || element.matches(excludeSelector)) {
+                                isExcluded = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!isExcluded) {
+                            const textLength = (element.innerText || element.textContent || '').length;
+                            const paragraphs = element.querySelectorAll('p').length;
+                            const headings = element.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
+                            
+                            const score = textLength + (paragraphs * 50) + (headings * 30);
+                            
+                            if (score > maxScore && textLength > 100) {
+                                maxScore = score;
+                                contentArea = element;
+                            }
+                        }
+                    });
+                }
+                
+                if (!contentArea || maxScore < 200) {
+                    contentArea = document.body;
+                }
+                
+                return contentArea;
+            }
+            
+            const contentArea = findMainContent();
+            
+            const cleanContent = contentArea.cloneNode(true);
+            
+            const excludeSelectors = [
+                'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
+                '.widget', '.footer', '.header', '.nav', '.breadcrumb', '.breadcrumbs',
+                '.related-posts', '.comments', '.comment', '.social-share', 
+                'script', 'style', 'noscript', '.advertisement', '.ads', '.banner',
+                '.popup', '.modal', '.overlay', '.cookie', '.newsletter-signup',
+                '.share-buttons', '.social-buttons', '.tags', '.categories',
+                '.author-bio', '.author-info', '.meta', '.metadata', '.byline',
+                'aside', 'form', 'iframe', 'video', 'audio', 'embed', 'object',
+                '.skip-link', '.screen-reader-text', '.sr-only', '.visually-hidden'
+            ];
+            
+            excludeSelectors.forEach(selector => {
+                cleanContent.querySelectorAll(selector).forEach(el => el.remove());
+            });
+            
+            let mainText = '';
+            
+            if (cleanContent.innerText) {
+                mainText = cleanContent.innerText;
+            } else {
+                mainText = cleanContent.textContent || '';
+            }
+            
+            mainText = mainText
+                .replace(/\s+/g, ' ')
+                .replace(/\n\s*\n/g, '\n')
+                .replace(/^\s+|\s+$/g, '')
+                .trim();
+            
+            const words = mainText
+                .split(/[\s\n\r\t]+/)
+                .filter(word => {
+                    const cleanWord = word.replace(/[^\w\u0590-\u05FF]/g, '');
+                    return cleanWord.length >= 2 && /[a-zA-Z\u0590-\u05FF]/.test(cleanWord);
+                });
+            
+            const allImages = Array.from(document.querySelectorAll('img'));
+            const contentImages = allImages.filter(img => {
+                if (!contentArea.contains(img)) return false;
+                
+                const excludeSelectors = [
+                    'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
+                    '.widget', '.advertisement', '.ads', '.banner', '.logo',
+                    '.author-bio', '.social-share', '.comments'
+                ];
+                
+                for (const selector of excludeSelectors) {
+                    if (img.closest(selector)) return false;
+                }
+                
+                const rect = img.getBoundingClientRect();
+                if (rect.width < 50 && rect.height < 50) return false;
+                
+                return true;
+            });
+            
+            const contentData = {
+                text: mainText,
+                wordCount: words.length,
+                imageCount: contentImages.length,
+                imagesWithoutAlt: contentImages.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '').length,
+                debug: {
+                    contentAreaTag: contentArea.tagName,
+                    contentAreaClass: contentArea.className,
+                    contentAreaId: contentArea.id,
+                    originalTextLength: (contentArea.innerText || contentArea.textContent || '').length,
+                    cleanedTextLength: mainText.length,
+                    totalImages: allImages.length,
+                    contentImages: contentImages.length
                 }
             };
+
+            // Basic meta data
+            const title = document.title;
+            const description = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+            const keywords = document.querySelector('meta[name="keywords"]')?.getAttribute('content') || '';
+            const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
+            const robots = document.querySelector('meta[name="robots"]')?.getAttribute('content') || '';
+            const viewport = document.querySelector('meta[name="viewport"]')?.getAttribute('content') || '';
+            
+            const lang = document.documentElement.lang || document.querySelector('meta[http-equiv="content-language"]')?.getAttribute('content') || '';
+            const charset = document.querySelector('meta[charset]')?.getAttribute('charset') || 
+                           document.querySelector('meta[http-equiv="content-type"]')?.getAttribute('content') || '';
+            
+            const headings = {
+                h1: Array.from(document.querySelectorAll('h1')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
+                h2: Array.from(document.querySelectorAll('h2')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
+                h3: Array.from(document.querySelectorAll('h3')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
+                h4: document.querySelectorAll('h4').length,
+                h5: document.querySelectorAll('h5').length,
+                h6: document.querySelectorAll('h6').length
+            };
+            
+            const images = Array.from(document.querySelectorAll('img'));
+            const imageAnalysis = {
+                total: contentData.imageCount,
+                withAlt: contentData.imageCount - contentData.imagesWithoutAlt,
+                withoutAlt: contentData.imagesWithoutAlt,
+                withTitle: images.filter(img => img.getAttribute('title')).length,
+                withLazyLoading: images.filter(img => img.getAttribute('loading') === 'lazy').length,
+                oversized: images.filter(img => {
+                    const rect = img.getBoundingClientRect();
+                    return rect.width > 1920 || rect.height > 1080;
+                }).length
+            };
+            
+            const allLinks = Array.from(document.querySelectorAll('a[href]'));
+            const internalLinks = allLinks.filter(link => {
+                const href = link.getAttribute('href');
+                return href.startsWith('/') || href.startsWith(window.location.origin) || (!href.startsWith('http') && !href.startsWith('mailto:') && !href.startsWith('tel:'));
+            });
+            const externalLinks = allLinks.filter(link => {
+                const href = link.getAttribute('href');
+                return href.startsWith('http') && !href.startsWith(window.location.origin);
+            });
+            
+            const linkAnalysis = {
+                total: allLinks.length,
+                internal: internalLinks.length,
+                external: externalLinks.length,
+                nofollow: allLinks.filter(link => link.getAttribute('rel')?.includes('nofollow')).length,
+                withoutText: allLinks.filter(link => !link.textContent.trim()).length,
+                broken: []
+            };
+            
+            const wordCount = contentData.wordCount;
+            const readingTime = Math.ceil(wordCount / 200);
+            
+            const forms = Array.from(document.querySelectorAll('form'));
+            const formAnalysis = {
+                total: forms.length,
+                withAction: forms.filter(form => form.getAttribute('action')).length,
+                withMethod: forms.filter(form => form.getAttribute('method')).length,
+                inputs: document.querySelectorAll('input').length,
+                textareas: document.querySelectorAll('textarea').length,
+                selects: document.querySelectorAll('select').length
+            };
+            
+            const socialMeta = {
+                openGraph: {},
+                twitterCard: {},
+                facebook: {}
+            };
+            
+            document.querySelectorAll('meta[property^="og:"]').forEach(meta => {
+                const property = meta.getAttribute('property').replace('og:', '');
+                socialMeta.openGraph[property] = meta.getAttribute('content');
+            });
+            
+            document.querySelectorAll('meta[name^="twitter:"]').forEach(meta => {
+                const name = meta.getAttribute('name').replace('twitter:', '');
+                socialMeta.twitterCard[name] = meta.getAttribute('content');
+            });
+            
+            const structuredData = {
+                jsonLD: [],
+                microdata: [],
+                hasStructuredData: false
+            };
+            
+            try {
+                const jsonLDScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
+                structuredData.jsonLD = jsonLDScripts.map(script => {
+                    try {
+                        return JSON.parse(script.textContent);
+                    } catch (e) {
+                        return null;
+                    }
+                }).filter(Boolean);
+                structuredData.hasStructuredData = structuredData.jsonLD.length > 0;
+            } catch (e) {}
+            
+            try {
+                const itemScopes = Array.from(document.querySelectorAll('[itemscope]'));
+                structuredData.microdata = itemScopes.map(item => ({
+                    type: item.getAttribute('itemtype'),
+                    properties: Array.from(item.querySelectorAll('[itemprop]')).map(prop => ({
+                        name: prop.getAttribute('itemprop'),
+                        value: prop.getAttribute('content') || prop.textContent.trim()
+                    }))
+                }));
+                if (structuredData.microdata.length > 0) {
+                    structuredData.hasStructuredData = true;
+                }
+            } catch (e) {}
+            
+            const technicalSEO = {
+                hasHTTPS: window.location.protocol === 'https:',
+                hasRobotsTxt: false,
+                hasSitemap: !!document.querySelector('link[rel="sitemap"]'),
+                hasCanonical: !!canonical,
+                hasViewport: !!viewport,
+                isResponsive: !!viewport && viewport.includes('width=device-width'),
+                hasCharset: !!charset,
+                hasLang: !!lang,
+                amp: !!document.querySelector('html[amp]') || !!document.querySelector('html[⚡]')
+            };
+            
+            const pageSpeedIndicators = {
+                totalStylesheets: document.querySelectorAll('link[rel="stylesheet"]').length,
+                totalScripts: document.querySelectorAll('script[src]').length,
+                inlineStyles: document.querySelectorAll('style').length,
+                inlineScripts: document.querySelectorAll('script:not([src])').length,
+                totalImages: images.length,
+                hasMinifiedCSS: Array.from(document.querySelectorAll('link[rel="stylesheet"]')).some(link => 
+                    link.getAttribute('href')?.includes('.min.css')),
+                hasMinifiedJS: Array.from(document.querySelectorAll('script[src]')).some(script => 
+                    script.getAttribute('src')?.includes('.min.js'))
+            };
+            
+            return {
+                title,
+                titleLength: title.length,
+                description,
+                descriptionLength: description.length,
+                keywords,
+                canonical,
+                robots,
+                viewport,
+                lang,
+                charset,
+                headings,
+                wordCount,
+                readingTime,
+                imageAnalysis,
+                linkAnalysis,
+                formAnalysis,
+                socialMeta,
+                structuredData,
+                technicalSEO,
+                pageSpeedIndicators,
+                url: window.location.href,
+                urlLength: window.location.href.length,
+                hasParameters: window.location.search.length > 0,
+                hasFragment: window.location.hash.length > 0,
+                checks: {
+                    no_h1_tag: document.querySelectorAll('h1').length === 0,
+                    no_image_alt: document.querySelectorAll('img:not([alt]), img[alt=""]').length > 0,
+                    broken_links: []
+                },
+                _contentData: contentData
+            };
+        });
+        
+        const extractedContentData = seoData._contentData;
+        const readabilityScore = calculateFleschScore(extractedContentData.text);
+        const keywordDensity = analyzeKeywordDensity(extractedContentData.text);
+        const contentFreshness = analyzeContentFreshness(extractedContentData.text, metaTags);
+        const contentLinks = await getContentInternalLinks(page);
+        const clickDepth = calculateClickDepth(url);
+        
+        // Enhanced data object for score calculation
+        const enhancedData = {
+            statusChecks,
+            readabilityScore: readabilityScore.score,
+            contentFreshness: contentFreshness.category,
+            clickDepth
+        };
+        
+        // Calculate enhanced SEO score
+        const seoScore = calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData);
+        
+        // Extract all schemas
+        const allSchemas = await extractAllSchemas(page);
+        
+        // Screenshot handling
+        let screenshotUrl = null;
+        if (includeScreenshot) {
+            try {
+                const fs = require('fs');
+                const path = require('path');
+                
+                const screenshotsDir = '/app/screenshots';
+                if (!fs.existsSync(screenshotsDir)) {
+                    fs.mkdirSync(screenshotsDir, { recursive: true });
+                }
+                
+                const timestamp = Date.now();
+                const screenshotPath = path.join(screenshotsDir, `screenshot_${timestamp}.png`);
+                
+                await page.screenshot({ 
+                    path: screenshotPath, 
+                    fullPage: true,
+                    type: 'png'
+                });
+                
+                screenshotUrl = `/screenshots/screenshot_${timestamp}.png`;
+                console.log(`📸 Screenshot saved: ${screenshotUrl}`);
+                
+                // Cleanup old screenshots
+                cleanupOldScreenshots();
+                
+            } catch (screenshotError) {
+                console.error('Screenshot error:', screenshotError);
+            }
         }
 
+        // Clean up _contentData before sending response
+        delete seoData._contentData;
+
+        // Build comprehensive response
+        const apiResponse = {
+            success: true,
+            data: {
+                url: url,
+                timestamp: new Date().toISOString(),
+                statusCode,
+                statusChecks,
+                performanceMetrics: {
+                    ...performanceMetrics,
+                    totalLoadTime: loadTime
+                },
+                seoData,
+                seoScore,
+                readabilityAnalysis: readabilityScore,
+                keywordDensity,
+                contentFreshness,
+                contentLinks,
+                clickDepth,
+                allSchemas,
+                screenshot: screenshotUrl
+            }
+        };
+
+        // Add debug information - always detailed
+        apiResponse.data.debug = {
+            metaTagsExtracted: Object.keys(metaTags).length,
+            contentExtractionMethod: 'advanced-content-area-detection',
+            readabilityLanguage: readabilityScore.details ? 'detected' : 'unknown',
+            keywordLanguage: keywordDensity.language,
+            freshnessAnalysis: {
+                datesFound: contentFreshness.dates.length,
+                sourcesUsed: contentFreshness.sources,
+                latestDate: contentFreshness.latestDate
+            },
+            timeouts: {
+                pageTimeout: timeout,
+                waitUntil: waitUntil,
+                actualLoadTime: loadTime
+            }
+        };
+
+        console.log(`✅ SEO audit completed successfully for ${url}`);
         res.json(apiResponse);
 
     } catch (error) {
