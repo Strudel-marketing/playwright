@@ -353,30 +353,25 @@ function analyzeContentFreshness(text, metaTags = {}) {
         latestDate: null,
         daysSinceLatest: null,
         category: 'unknown',
-        sources: []
+        sources: [],
+        debug: {
+            metaTagsFound: Object.keys(metaTags).length,
+            dateFieldsChecked: 0,
+            patternsMatched: 0
+        }
     };
 
     // בדיקת meta tags תחילה - רשימה מורחבת
     const metaDateFields = [
-        'article:published_time',
-        'article:modified_time', 
-        'article:updated_time',
-        'date',
-        'datePublished',
-        'dateModified',
-        'dateCreated',
-        'lastmod',
-        'pubdate',
-        'DC.date',
-        'DC.date.created',
-        'DC.date.modified',
-        'sailthru.date',
-        'publish_date',
-        'updated_time',
-        'modified_time'
+        'article:published_time', 'article:modified_time', 'article:updated_time',
+        'date', 'datePublished', 'dateModified', 'dateCreated', 'lastmod', 'pubdate',
+        'DC.date', 'DC.date.created', 'DC.date.modified', 'sailthru.date',
+        'publish_date', 'updated_time', 'modified_time', 'creation_date',
+        'og:updated_time', 'twitter:data1', 'twitter:label1'
     ];
 
     metaDateFields.forEach(field => {
+        results.debug.dateFieldsChecked++;
         if (metaTags[field]) {
             const date = parseDate(metaTags[field]);
             if (date) {
@@ -388,40 +383,60 @@ function analyzeContentFreshness(text, metaTags = {}) {
         }
     });
 
-    // חיפוש תאריכים בתוכן עצמו
+    // חיפוש בכל המפתחות שמתחילים ב-time-, content-date-, text-date-, jsonld-
+    Object.keys(metaTags).forEach(key => {
+        if (key.startsWith('time-') || key.startsWith('content-date-') || 
+            key.startsWith('text-date-') || key.startsWith('jsonld-')) {
+            const date = parseDate(metaTags[key]);
+            if (date && date.getFullYear() > 2000 && date <= new Date()) {
+                results.dates.push({ 
+                    date, 
+                    source: `extracted:${key}`, 
+                    text: metaTags[key] 
+                });
+                if (!results.sources.includes('content-elements')) {
+                    results.sources.push('content-elements');
+                }
+            }
+        }
+    });
+
+    // חיפוש תאריכים בתוכן עצמו - דפוסים מורחבים
     const datePatterns = [
         // עברית - דפוסים מורחבים
-        /(?:פורסם|עודכן|כתב|נוצר|הועלה|נכתב|התפרסם)\s*(?:ב[-:]?|ביום)?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
-        /(?:תאריך|מיום|ב-?)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
-        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:עודכן|פורסם)/gi,
+        /(?:פורסם|עודכן|כתב|נוצר|הועלה|נכתב|התפרסם|תאריך)\s*(?:ב[-:]?|ביום|ב|על)?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(?:תאריך|מיום|ב-?|מתאריך)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:עודכן|פורסם|נכתב)/gi,
         
         // אנגלית - דפוסים מורחבים
-        /(?:published|updated|created|posted|written|modified|edited)\s*(?:on|at)?\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
-        /(?:date|on)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
-        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:updated|published|posted)/gi,
+        /(?:published|updated|created|posted|written|modified|edited|date)\s*(?:on|at|:)?\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(?:date|on|posted|published)\s*[:\-]?\s*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/gi,
+        /(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\s*(?:updated|published|posted|created)/gi,
         
-        // פורמטים כלליים - נוספו פורמטים
+        // פורמטים כלליים
         /\b(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{4})\b/g,
         /\b(\d{4}[\/\-\.]\d{1,2}[\/\-\.]\d{1,2})\b/g,
-        /\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2})\b/g, // שנתיים ספרות
+        /\b(\d{1,2}[-\/]\d{1,2}[-\/]\d{2})\b/g,
         
-        // ISO dates ותאריכים מלאים
+        // ISO dates
         /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/g,
         /\b(\d{4}-\d{2}-\d{2})\b/g,
         
-        // תאריכים עם שמות חודשים באנגלית
+        // תאריכים עם שמות חודשים
         /\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}/gi,
         /\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}/gi,
+        /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}/gi,
         
-        // תאריכים עם שמות חודשים בעברית
+        // חודשים בעברית
         /\b(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+\d{1,2},?\s+\d{4}/gi,
         /\b\d{1,2}\s+(?:ב)?(?:ינואר|פברואר|מרץ|אפריל|מאי|יוני|יולי|אוגוסט|ספטמבר|אוקטובר|נובמבר|דצמבר)\s+\d{4}/gi
     ];
 
     // חיפוש בכל התוכן
-    datePatterns.forEach(pattern => {
+    datePatterns.forEach((pattern, index) => {
         let match;
         while ((match = pattern.exec(text)) !== null) {
+            results.debug.patternsMatched++;
             const dateStr = match[1] || match[0];
             const date = parseDate(dateStr);
             if (date && date.getFullYear() > 2000 && date <= new Date()) {
@@ -429,27 +444,10 @@ function analyzeContentFreshness(text, metaTags = {}) {
                     date, 
                     source: 'content-text', 
                     text: match[0].trim(),
-                    pattern: pattern.source.substring(0, 50) + '...'
+                    pattern: `pattern-${index}`
                 });
                 if (!results.sources.includes('content-text')) {
                     results.sources.push('content-text');
-                }
-            }
-        }
-    });
-
-    // חיפוש בתגי content-date שנאספו
-    Object.keys(metaTags).forEach(key => {
-        if (key.startsWith('content-date-') || key.startsWith('time-')) {
-            const date = parseDate(metaTags[key]);
-            if (date && date.getFullYear() > 2000 && date <= new Date()) {
-                results.dates.push({ 
-                    date, 
-                    source: `content-element:${key}`, 
-                    text: metaTags[key] 
-                });
-                if (!results.sources.includes('content-elements')) {
-                    results.sources.push('content-elements');
                 }
             }
         }
@@ -466,10 +464,14 @@ function analyzeContentFreshness(text, metaTags = {}) {
         results.daysSinceLatest = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
         
         // קטגוריזציה
-        if (results.daysSinceLatest <= 30) {
+        if (results.daysSinceLatest <= 7) {
+            results.category = 'very-fresh';
+        } else if (results.daysSinceLatest <= 30) {
             results.category = 'fresh';
-        } else if (results.daysSinceLatest <= 180) {
+        } else if (results.daysSinceLatest <= 90) {
             results.category = 'recent';
+        } else if (results.daysSinceLatest <= 365) {
+            results.category = 'moderate';
         } else {
             results.category = 'old';
         }
