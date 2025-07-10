@@ -1172,9 +1172,9 @@ app.get('/api/extract/quick-check', async (req, res) => {
                            document.querySelector('meta[http-equiv="content-type"]')?.getAttribute('content') || '';
             
             const headings = {
-                h1: Array.from(document.querySelectorAll('h1')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
-                h2: Array.from(document.querySelectorAll('h2')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
-                h3: Array.from(document.querySelectorAll('h3')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
+                h1: Array.from(document.querySelectorAll('h1')).map(h => h.textContent.trim()),
+                h2: Array.from(document.querySelectorAll('h2')).map(h => h.textContent.trim()),
+                h3: Array.from(document.querySelectorAll('h3')).map(h => h.textContent.trim()),
                 h4: document.querySelectorAll('h4').length,
                 h5: document.querySelectorAll('h5').length,
                 h6: document.querySelectorAll('h6').length
@@ -1282,10 +1282,8 @@ app.get('/api/extract/quick-check', async (req, res) => {
                 isResponsive: !!viewport && viewport.includes('width=device-width'),
                 hasCharset: !!charset,
                 hasLang: !!lang,
-                amp: !!document.querySelector('html[amp]') || !!document.querySelector('html[⚡]')
-            };
-            
-            const pageSpeedIndicators = {
+                amp: !!document.querySelector('html[amp]') || !!document.querySelector('html[⚡]'),
+                // Page speed indicators
                 totalStylesheets: document.querySelectorAll('link[rel="stylesheet"]').length,
                 totalScripts: document.querySelectorAll('script[src]').length,
                 inlineStyles: document.querySelectorAll('style').length,
@@ -1338,114 +1336,12 @@ app.get('/api/extract/quick-check', async (req, res) => {
         const contentLinks = await getContentInternalLinks(page);
         const clickDepth = calculateClickDepth(url);
         
-        // Extract markdown content
+        // Extract markdown content - simple and reliable approach
         const markdownContent = await page.evaluate(() => {
-            function htmlToMarkdown(element) {
-                if (!element) return '';
-                
-                const tagName = element.tagName?.toLowerCase();
-                let markdown = '';
-                
-                switch (tagName) {
-                    case 'h1':
-                        markdown = '# ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'h2':
-                        markdown = '## ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'h3':
-                        markdown = '### ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'h4':
-                        markdown = '#### ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'h5':
-                        markdown = '##### ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'h6':
-                        markdown = '###### ' + element.innerText.trim() + '\n\n';
-                        break;
-                    case 'p':
-                        markdown = element.innerText.trim() + '\n\n';
-                        break;
-                    case 'br':
-                        markdown = '\n';
-                        break;
-                    case 'strong':
-                    case 'b':
-                        markdown = '**' + element.innerText.trim() + '**';
-                        break;
-                    case 'em':
-                    case 'i':
-                        markdown = '*' + element.innerText.trim() + '*';
-                        break;
-                    case 'a':
-                        const href = element.getAttribute('href');
-                        const text = element.innerText.trim();
-                        if (href && text) {
-                            markdown = `[${text}](${href})`;
-                        } else {
-                            markdown = text;
-                        }
-                        break;
-                    case 'img':
-                        const src = element.getAttribute('src');
-                        const alt = element.getAttribute('alt') || '';
-                        if (src) {
-                            markdown = `![${alt}](${src})\n\n`;
-                        }
-                        break;
-                    case 'ul':
-                        Array.from(element.children).forEach(li => {
-                            if (li.tagName.toLowerCase() === 'li') {
-                                markdown += '- ' + li.innerText.trim() + '\n';
-                            }
-                        });
-                        markdown += '\n';
-                        break;
-                    case 'ol':
-                        Array.from(element.children).forEach((li, index) => {
-                            if (li.tagName.toLowerCase() === 'li') {
-                                markdown += `${index + 1}. ` + li.innerText.trim() + '\n';
-                            }
-                        });
-                        markdown += '\n';
-                        break;
-                    case 'blockquote':
-                        const lines = element.innerText.trim().split('\n');
-                        lines.forEach(line => {
-                            markdown += '> ' + line + '\n';
-                        });
-                        markdown += '\n';
-                        break;
-                    case 'code':
-                        markdown = '`' + element.innerText.trim() + '`';
-                        break;
-                    case 'pre':
-                        markdown = '```\n' + element.innerText.trim() + '\n```\n\n';
-                        break;
-                    default:
-                        // For other elements, just extract text and process children
-                        if (element.children && element.children.length > 0) {
-                            Array.from(element.children).forEach(child => {
-                                markdown += htmlToMarkdown(child);
-                            });
-                        } else {
-                            const text = element.innerText || element.textContent || '';
-                            if (text.trim()) {
-                                markdown = text.trim() + '\n\n';
-                            }
-                        }
-                }
-                
-                return markdown;
-            }
-            
-            // Find main content area
+            // Find main content
             const contentSelectors = [
                 'main', 'article', '[role="main"]', '#main', '#content', '.main',
-                '.content', '.post-content', '.entry-content', '.article-content', 
-                '.page-content', '.main-content', '.site-content', '.primary-content'
+                '.content', '.post-content', '.entry-content', '.article-content'
             ];
             
             let contentArea = null;
@@ -1461,31 +1357,79 @@ app.get('/api/extract/quick-check', async (req, res) => {
                 contentArea = document.body;
             }
             
-            // Clean content area
-            const excludeSelectors = [
-                'header', 'footer', 'nav', '.navigation', '.menu', '.sidebar',
-                '.widget', 'script', 'style', 'noscript', '.advertisement', '.ads',
-                '.social-share', '.comments', '.comment', '.breadcrumb', '.meta'
-            ];
-            
-            const cleanArea = contentArea.cloneNode(true);
-            excludeSelectors.forEach(selector => {
-                cleanArea.querySelectorAll(selector).forEach(el => el.remove());
-            });
-            
-            // Convert to markdown
+            // Simple markdown conversion
             let markdown = '';
-            Array.from(cleanArea.children).forEach(element => {
-                markdown += htmlToMarkdown(element);
+            
+            // Get all headings and paragraphs in order
+            const elements = contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote');
+            
+            elements.forEach(el => {
+                const tagName = el.tagName.toLowerCase();
+                const text = el.innerText?.trim() || '';
+                
+                if (!text) return;
+                
+                // Skip navigation, sidebar, etc.
+                if (el.closest('nav, .navigation, .menu, .sidebar, .widget, .comments, .social-share, .breadcrumb')) {
+                    return;
+                }
+                
+                switch (tagName) {
+                    case 'h1':
+                        markdown += `# ${text}\n\n`;
+                        break;
+                    case 'h2':
+                        markdown += `## ${text}\n\n`;
+                        break;
+                    case 'h3':
+                        markdown += `### ${text}\n\n`;
+                        break;
+                    case 'h4':
+                        markdown += `#### ${text}\n\n`;
+                        break;
+                    case 'h5':
+                        markdown += `##### ${text}\n\n`;
+                        break;
+                    case 'h6':
+                        markdown += `###### ${text}\n\n`;
+                        break;
+                    case 'p':
+                        markdown += `${text}\n\n`;
+                        break;
+                    case 'ul':
+                        const listItems = Array.from(el.querySelectorAll('li'));
+                        listItems.forEach(li => {
+                            const itemText = li.innerText?.trim();
+                            if (itemText) {
+                                markdown += `- ${itemText}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                    case 'ol':
+                        const orderedItems = Array.from(el.querySelectorAll('li'));
+                        orderedItems.forEach((li, index) => {
+                            const itemText = li.innerText?.trim();
+                            if (itemText) {
+                                markdown += `${index + 1}. ${itemText}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                    case 'blockquote':
+                        const lines = text.split('\n');
+                        lines.forEach(line => {
+                            if (line.trim()) {
+                                markdown += `> ${line.trim()}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                }
             });
             
-            // Clean up extra newlines
-            markdown = markdown
-                .replace(/\n{3,}/g, '\n\n')
-                .replace(/^\s+|\s+$/g, '')
-                .trim();
-            
-            return markdown;
+            // Clean up extra newlines and return
+            return markdown.replace(/\n{3,}/g, '\n\n').trim();
         });
         
         // Enhanced data object for score calculation
@@ -1493,7 +1437,7 @@ app.get('/api/extract/quick-check', async (req, res) => {
             statusChecks,
             readabilityScore: readabilityScore.score,
             contentFreshness: contentFreshness.category,
-            clickDepth
+            clickDepth: seoData.clickDepth
         };
         
         // Calculate enhanced SEO score
@@ -1539,14 +1483,17 @@ app.get('/api/extract/quick-check', async (req, res) => {
         delete seoData.socialMeta; // רק ב-allSchemas
         // canonical ו-robots נשארים ב-seoData כי הם technical onsite data
 
-        // Build comprehensive response
+        // Build comprehensive response with better structure
         const apiResponse = {
             success: true,
             data: {
                 url: url,
                 timestamp: new Date().toISOString(),
                 statusCode,
-                statusChecks,
+                statusChecks: {
+                    ...statusChecks,
+                    ...seoData.technicalSEO
+                },
                 performanceMetrics: {
                     ...performanceMetrics,
                     totalLoadTime: loadTime
@@ -1557,10 +1504,9 @@ app.get('/api/extract/quick-check', async (req, res) => {
                 keywordDensity,
                 contentFreshness,
                 contentLinks,
-                clickDepth,
-                allSchemas,
                 markdownContent,
-                screenshot: screenshotUrl
+                screenshot: screenshotUrl,
+                allSchemas
             }
         };
 
