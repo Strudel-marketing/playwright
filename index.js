@@ -898,6 +898,8 @@ app.post('/api/extract/quick-check', async (req, res) => {
     
     try {
         // הגדרת timeout גלובלי לדף
+        const timeout = 30000;
+        const waitUntil = 'domcontentloaded';
         page.setDefaultTimeout(timeout);
         page.setDefaultNavigationTimeout(timeout);
         
@@ -1851,9 +1853,9 @@ app.post('/api/seo/audit', async (req, res) => {
                            document.querySelector('meta[http-equiv="content-type"]')?.getAttribute('content') || '';
             
             const headings = {
-                h1: Array.from(document.querySelectorAll('h1')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
-                h2: Array.from(document.querySelectorAll('h2')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
-                h3: Array.from(document.querySelectorAll('h3')).map(h => ({ text: h.textContent.trim(), length: h.textContent.trim().length })),
+                h1: Array.from(document.querySelectorAll('h1')).map(h => h.textContent.trim()),
+                h2: Array.from(document.querySelectorAll('h2')).map(h => h.textContent.trim()),
+                h3: Array.from(document.querySelectorAll('h3')).map(h => h.textContent.trim()),
                 h4: document.querySelectorAll('h4').length,
                 h5: document.querySelectorAll('h5').length,
                 h6: document.querySelectorAll('h6').length
