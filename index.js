@@ -86,7 +86,8 @@ function calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData) {
     if (!seoData.technicalSEO.hasCanonical) {
         technicalScore -= 2;
         issues.push('Missing canonical URL');
-        recommendations.push('Add canonical URL to prevent duplicate contentconst express = require('express');
+        recommendations.push('Add canonical URL to prevent duplicate content');
+    }const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
