@@ -1,93 +1,4 @@
-// Enhanced SEO score calculation
-function calculateEnhancedSEOScore(seoData, performanceMetrics, enhancedData) {
-    let score = 100;
-    const issues = [];
-    const recommendations = [];
-    const breakdown = {
-        content: 0,
-        technical: 0,
-        performance: 0,
-        mobile: 0,
-        social: 0,
-        structured: 0,
-        readability: 0,
-        freshness: 0
-    };
-
-    // Content Score (25 points)
-    let contentScore = 25;
-    
-    if (!seoData.title) {
-        contentScore -= 6;
-        issues.push('Missing page title');
-        recommendations.push('Add a descriptive page title');
-    } else if (seoData.titleLength < 30 || seoData.titleLength > 60) {
-        contentScore -= 3;
-        issues.push('Title length not optimal (30-60 chars)');
-        recommendations.push('Optimize title length to 30-60 characters');
-    }
-    
-    if (!seoData.description) {
-        contentScore -= 5;
-        issues.push('Missing meta description');
-        recommendations.push('Add a compelling meta description');
-    } else if (seoData.descriptionLength < 120 || seoData.descriptionLength > 160) {
-        contentScore -= 2;
-        issues.push('Meta description length not optimal (120-160 chars)');
-        recommendations.push('Optimize meta description to 120-160 characters');
-    }
-    
-    if (seoData.headings.h1.length === 0) {
-        contentScore -= 5;
-        issues.push('Missing H1 tag');
-        recommendations.push('Add a clear H1 heading that describes the page content');
-    } else if (seoData.headings.h1.length > 1) {
-        contentScore -= 2;
-        issues.push('Multiple H1 tags found');
-        recommendations.push('Use only one H1 tag per page');
-    }
-    
-    if (seoData.wordCount < 300) {
-        contentScore -= 3;
-        issues.push('Content too short (less than 300 words)');
-        recommendations.push('Add more valuable content (aim for 300+ words)');
-    }
-    
-    if (seoData.imageAnalysis && seoData.imageAnalysis.withoutAlt > 0) {
-        const penalty = Math.min(4, seoData.imageAnalysis.withoutAlt);
-        contentScore -= penalty;
-        issues.push(`${seoData.imageAnalysis.withoutAlt} images missing alt text`);
-        recommendations.push('Add descriptive alt text to all images');
-    }
-    
-    breakdown.content = Math.max(0, contentScore);
-    
-    // Technical Score (20 points)
-    let technicalScore = 20;
-    
-    if (enhancedData.statusChecks.is_4xx_code) {
-        technicalScore -= 8;
-        issues.push('Page returns 4xx error');
-        recommendations.push('Fix the 4xx error to make page accessible');
-    }
-    
-    if (enhancedData.statusChecks.is_5xx_code) {
-        technicalScore -= 10;
-        issues.push('Page returns 5xx server error');
-        recommendations.push('Fix server error immediately');
-    }
-    
-    if (!seoData.technicalSEO.hasHTTPS) {
-        technicalScore -= 5;
-        issues.push('Not using HTTPS');
-        recommendations.push('Implement SSL certificate for security');
-    }
-    
-    if (!seoData.technicalSEO.hasCanonical) {
-        technicalScore -= 2;
-        issues.push('Missing canonical URL');
-        recommendations.push('Add canonical URL to prevent duplicate content');
-    }const express = require('express');
+const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
 const { chromium } = require('playwright');
@@ -295,6 +206,44 @@ function analyzeKeywordDensity(text) {
     };
 }
 
+// Parse date from string with multiple formats
+function parseDate(dateStr) {
+    if (!dateStr) return null;
+    
+    const cleanStr = dateStr.trim();
+    
+    // Try direct parsing first
+    let date = new Date(cleanStr);
+    if (!isNaN(date.getTime())) {
+        return date;
+    }
+
+    // Try specific formats
+    const formats = [
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+        /^\d{4}-\d{2}-\d{2}/,
+        /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/,
+        /^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/
+    ];
+
+    for (const format of formats) {
+        const match = cleanStr.match(format);
+        if (match) {
+            if (format.source.includes('4})[')) {
+                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+            } else {
+                date = new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
+            }
+            
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
+        }
+    }
+
+    return null;
+}
+
 // Enhanced content freshness analysis with meta tag parsing
 function analyzeContentFreshness(text, metaTags = {}) {
     const results = {
@@ -406,44 +355,6 @@ function analyzeContentFreshness(text, metaTags = {}) {
     }
 
     return results;
-}
-
-// Parse date from string with multiple formats
-function parseDate(dateStr) {
-    if (!dateStr) return null;
-    
-    const cleanStr = dateStr.trim();
-    
-    // Try direct parsing first
-    let date = new Date(cleanStr);
-    if (!isNaN(date.getTime())) {
-        return date;
-    }
-
-    // Try specific formats
-    const formats = [
-        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
-        /^\d{4}-\d{2}-\d{2}/,
-        /^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{4})$/,
-        /^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})$/
-    ];
-
-    for (const format of formats) {
-        const match = cleanStr.match(format);
-        if (match) {
-            if (format.source.includes('4})[')) {
-                date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
-            } else {
-                date = new Date(parseInt(match[3]), parseInt(match[2]) - 1, parseInt(match[1]));
-            }
-            
-            if (!isNaN(date.getTime())) {
-                return date;
-            }
-        }
-    }
-
-    return null;
 }
 
 // Calculate click depth
