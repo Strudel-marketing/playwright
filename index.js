@@ -2018,7 +2018,102 @@ app.post('/api/seo/audit', async (req, res) => {
         const contentFreshness = analyzeContentFreshness(extractedContentData.text, metaTags);
         const contentLinks = await getContentInternalLinks(page);
         const clickDepth = calculateClickDepth(url);
-        
+         // Extract markdown content
+        const markdownContent = await page.evaluate(() => {
+            // Find main content
+            const contentSelectors = [
+                'main', 'article', '[role="main"]', '#main', '#content', '.main',
+                '.content', '.post-content', '.entry-content', '.article-content'
+            ];
+            
+            let contentArea = null;
+            for (const selector of contentSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    contentArea = element;
+                    break;
+                }
+            }
+            
+            if (!contentArea) {
+                contentArea = document.body;
+            }
+            
+            // Simple markdown conversion
+            let markdown = '';
+            
+            // Get all headings and paragraphs in order
+            const elements = contentArea.querySelectorAll('h1, h2, h3, h4, h5, h6, p, ul, ol, blockquote');
+            
+            elements.forEach(el => {
+                const tagName = el.tagName.toLowerCase();
+                const text = el.innerText?.trim() || '';
+                
+                if (!text) return;
+                
+                // Skip navigation, sidebar, etc.
+                if (el.closest('nav, .navigation, .menu, .sidebar, .widget, .comments, .social-share, .breadcrumb')) {
+                    return;
+                }
+                
+                switch (tagName) {
+                    case 'h1':
+                        markdown += `# ${text}\n\n`;
+                        break;
+                    case 'h2':
+                        markdown += `## ${text}\n\n`;
+                        break;
+                    case 'h3':
+                        markdown += `### ${text}\n\n`;
+                        break;
+                    case 'h4':
+                        markdown += `#### ${text}\n\n`;
+                        break;
+                    case 'h5':
+                        markdown += `##### ${text}\n\n`;
+                        break;
+                    case 'h6':
+                        markdown += `###### ${text}\n\n`;
+                        break;
+                    case 'p':
+                        markdown += `${text}\n\n`;
+                        break;
+                    case 'ul':
+                        const listItems = Array.from(el.querySelectorAll('li'));
+                        listItems.forEach(li => {
+                            const itemText = li.innerText?.trim();
+                            if (itemText) {
+                                markdown += `- ${itemText}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                    case 'ol':
+                        const orderedItems = Array.from(el.querySelectorAll('li'));
+                        orderedItems.forEach((li, index) => {
+                            const itemText = li.innerText?.trim();
+                            if (itemText) {
+                                markdown += `${index + 1}. ${itemText}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                    case 'blockquote':
+                        const lines = text.split('\n');
+                        lines.forEach(line => {
+                            if (line.trim()) {
+                                markdown += `> ${line.trim()}\n`;
+                            }
+                        });
+                        markdown += '\n';
+                        break;
+                }
+            });
+    
+    // Clean up extra newlines and return
+    return markdown.replace(/\n{3,}/g, '\n\n').trim();
+});
+
         // Enhanced data object for score calculation
         const enhancedData = {
             statusChecks,
@@ -2087,6 +2182,7 @@ app.post('/api/seo/audit', async (req, res) => {
                 contentFreshness,
                 contentLinks,
                 clickDepth,
+                markdownContent,
                 allSchemas,
                 screenshot: screenshotUrl
             }
