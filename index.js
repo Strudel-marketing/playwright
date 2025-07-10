@@ -879,7 +879,7 @@ app.get('/health', (req, res) => {
 });
 
 // Quick check endpoint - simple structured data check
-app.get('/api/extract/quick-check', async (req, res) => {
+app.post('/api/extract/quick-check', async (req, res) => {
     const { url, includeScreenshot = false, detailed = true } = req.body;
     
     if (!url) {
