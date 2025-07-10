@@ -871,7 +871,7 @@ app.get('/health', (req, res) => {
             'keyword-density',
             'content-freshness',
             'click-depth-analysis',
-            'quick-check'
+            'quick-check',
             'markdown-extraction'
         ],
         timestamp: new Date().toISOString()
