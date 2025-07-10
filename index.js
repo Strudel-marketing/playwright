@@ -2292,32 +2292,6 @@ app.post('/api/extract/quick-check', async (req, res) => {
     }
 });
 
-// Enhanced SEO Audit Endpoint with all new features
-app.post('/api/seo/audit', async (req, res) => {
-    const { data, schemaType } = req.body;
-    
-    if (!data) {
-        return res.status(400).json({
-            success: false,
-            error: 'Data is required for validation'
-        });
-    }
-
-    try {
-        const result = schemaValidator.validateSchema(data);
-        res.json({
-            success: true,
-            validation: result
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: 'Validation failed',
-            details: error.message
-        });
-    }
-});
-
 // Schema validation endpoint
 app.post('/api/schema/validate', async (req, res) => {
     const { data, schemaType } = req.body;
