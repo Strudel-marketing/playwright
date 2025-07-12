@@ -1482,6 +1482,173 @@ app.post('/api/paa', async (req, res) => {
   }
 });
 
+// =========================================
+// הוסף רק את זה אחרי הendpoint הקיים של PAA
+// אל תמחק כלום מהקוד הקיים!
+// =========================================
+
+// 🔍 PAA Debug Endpoint - הוסף את זה אחרי הendpoint של /api/paa
+app.post('/api/paa/debug', async (req, res) => {
+  console.log('🔍 PAA Debug started for:', req.body.query);
+  
+  const { query } = req.body;
+  
+  if (!query) {
+    return res.status(400).json({
+      success: false,
+      error: 'Query parameter is required'
+    });
+  }
+
+  const browser = globalBrowser || await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
+  const page = await browser.newPage();
+  const startTime = Date.now();
+  
+  try {
+    // Set realistic headers
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9'
+    });
+    
+    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`;
+    console.log(`🔍 Debug URL: ${searchUrl}`);
+    
+    await page.goto(searchUrl, { waitUntil: 'networkidle', timeout: 15000 });
+    await page.waitForTimeout(3000);
+    
+    const title = await page.title();
+    const url = page.url();
+    
+    // Take a screenshot
+    const screenshot = await page.screenshot({ 
+      fullPage: true, 
+      encoding: 'base64' 
+    });
+    
+    // Debug PAA elements
+    const paaDebug = await page.evaluate(() => {
+      const results = {
+        // Count different PAA selectors
+        dataInitElements: document.querySelectorAll('[data-initq]').length,
+        relatedQuestions: document.querySelectorAll('.related-question-pair').length,
+        cpkphbElements: document.querySelectorAll('[jsname="Cpkphb"]').length,
+        expandedPAA: document.querySelectorAll('.g[data-initq]').length,
+        
+        // Look for "People also ask" text
+        paaTextFound: document.body.innerText.includes('People also ask'),
+        relatedTextFound: document.body.innerText.includes('Related questions'),
+        
+        // Count total question marks
+        questionMarks: (document.body.innerText.match(/\?/g) || []).length,
+        
+        // Sample questions found
+        sampleQuestions: [],
+        
+        // HTML structure info
+        htmlStructure: {
+          hasDataInitq: !!document.querySelector('[data-initq]'),
+          hasRoleButton: document.querySelectorAll('[role="button"]').length,
+          hasExpandableElements: document.querySelectorAll('[aria-expanded]').length
+        }
+      };
+      
+      // Try to find question-like text
+      const allElements = document.querySelectorAll('*');
+      for (let el of allElements) {
+        const text = el.textContent;
+        if (text && text.includes('?') && text.length > 15 && text.length < 200) {
+          results.sampleQuestions.push({
+            text: text.trim().substring(0, 100) + (text.length > 100 ? '...' : ''),
+            tag: el.tagName,
+            hasDataInitq: !!el.dataset.initq,
+            className: el.className.substring(0, 50)
+          });
+          if (results.sampleQuestions.length >= 8) break;
+        }
+      }
+      
+      return results;
+    });
+    
+    // Try to get HTML around PAA area
+    const htmlSample = await page.evaluate(() => {
+      const html = document.documentElement.outerHTML;
+      
+      // Look for PAA-related content
+      const paaKeywords = ['data-initq', 'People also ask', 'related-question'];
+      
+      for (const keyword of paaKeywords) {
+        const index = html.toLowerCase().indexOf(keyword.toLowerCase());
+        if (index !== -1) {
+          const start = Math.max(0, index - 800);
+          const end = Math.min(html.length, index + 1200);
+          return {
+            keyword,
+            found: true,
+            sample: html.substring(start, end)
+          };
+        }
+      }
+      
+      return {
+        found: false,
+        sample: html.substring(0, 2000) // First 2000 chars
+      };
+    });
+    
+    res.json({
+      success: true,
+      data: {
+        query,
+        pageTitle: title,
+        finalUrl: url,
+        screenshot: `data:image/png;base64,${screenshot}`,
+        paaDebug,
+        htmlSample,
+        searchUrl,
+        analysis: {
+          likelyHasPAA: paaDebug.dataInitElements > 0 || paaDebug.paaTextFound,
+          totalQuestionElements: paaDebug.sampleQuestions.length,
+          recommendation: paaDebug.dataInitElements > 0 ? 
+            'Classic PAA elements found - extraction should work' :
+            paaDebug.paaTextFound ?
+            'PAA section text found but no data-initq - may need updated selectors' :
+            'No clear PAA indicators - this query may not trigger PAA on Google'
+        },
+        timestamp: new Date().toISOString()
+      },
+      metadata: {
+        processingTime: Date.now() - startTime,
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    console.error('PAA Debug Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    if (page) await page.close();
+  }
+});
+
+// =========================================
+// עדכון קטן לhealth endpoint - הוסף שורה אחת בלבד
+// =========================================
+
+// במקום הרשימה הקיימת של availableEndpoints, הוסף:
+// 'POST /api/paa/debug'
+
+// או פשוט השאר הכל כמו שזה, זה רק לdebug
+
 // Error handling middleware
 app.use((error, req, res, next) => {
     console.error('Unhandled error:', error);
