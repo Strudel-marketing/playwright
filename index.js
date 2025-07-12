@@ -1710,20 +1710,18 @@ async function startServer() {
 }
 
 // =========================================
-// PAA EXTRACTION FUNCTION - הוסף כאן!
+// PAA EXTRACTION FUNCTION - משופר עם תמיכה בעברית
 // =========================================
 
-// ============== עקיפת Google Bot Detection - תחליף את הפונקציה הקיימת ==============
-
-async function extractPAA(page, query) {
+async function extractPAA(page, query, language = 'en') {
   try {
-    console.log(`🔍 Enhanced PAA extraction for query: "${query}"`);
+    console.log(`🔍 Enhanced PAA extraction for query: "${query}" (${language})`);
     
-    // 🎯 STEP 1: Advanced Bot Avoidance Headers
+    // 🎯 STEP 1: Advanced Bot Avoidance Headers with language support
     await page.setExtraHTTPHeaders({
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Language': language === 'he' ? 'he-IL,he;q=0.9,en;q=0.8' : 'en-US,en;q=0.9',
       'Accept-Encoding': 'gzip, deflate, br',
       'DNT': '1',
       'Connection': 'keep-alive',
@@ -1744,15 +1742,18 @@ async function extractPAA(page, query) {
     // Add random delays to appear more human-like
     const randomDelay = () => Math.floor(Math.random() * 1000) + 500;
     
-    // 🎯 STEP 3: Try Multiple Search Strategies
-    const searchStrategies = [
-      // Strategy 1: Standard Google
+    // 🎯 STEP 3: Language-specific search strategies
+    const searchStrategies = language === 'he' ? [
+      // Hebrew-optimized strategies  
+      `https://www.google.co.il/search?q=${encodeURIComponent(query)}&hl=he&gl=il`,
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=he&gl=il&lr=lang_he`,
+      `https://www.google.co.il/search?q=${encodeURIComponent(query)}&hl=he`,
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=he&ie=UTF-8`
+    ] : [
+      // English strategies
       `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us`,
-      // Strategy 2: Different parameters
       `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&lr=lang_en`,
-      // Strategy 3: Image search (sometimes less restricted)
       `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=nws&hl=en`,
-      // Strategy 4: Different domain
       `https://www.google.co.uk/search?q=${encodeURIComponent(query)}&hl=en&gl=gb`
     ];
 
@@ -1792,8 +1793,8 @@ async function extractPAA(page, query) {
         // ✅ We got through! Extract PAA
         console.log(`✅ Strategy ${i + 1}: Success! Extracting PAA...`);
         
-        // Extract PAA with multiple methods
-        const questions = await page.evaluate(() => {
+        // Extract PAA with multiple methods including Hebrew support
+        const questions = await page.evaluate((lang) => {
           const results = [];
           
           // Method 1: Classic data-initq
@@ -1842,10 +1843,12 @@ async function extractPAA(page, query) {
             }
           });
 
-          // Method 4: Look for "People also ask" section
+          // Method 4: Look for "People also ask" section (English) or "אנשים שואלים גם" (Hebrew)
           const paaHeaders = Array.from(document.querySelectorAll('*')).filter(el => 
             el.textContent?.includes('People also ask') || 
-            el.textContent?.includes('Related questions')
+            el.textContent?.includes('Related questions') ||
+            el.textContent?.includes('אנשים שואלים גם') ||
+            el.textContent?.includes('שאלות קשורות')
           );
           
           paaHeaders.forEach(header => {
@@ -1868,26 +1871,56 @@ async function extractPAA(page, query) {
           // Method 5: Pattern matching (fallback)
           if (results.length === 0) {
             const bodyText = document.body.innerText;
-            const questionPattern = /([A-Z][A-Za-z\s,'-]{15,150}\?)/g;
-            const matches = bodyText.match(questionPattern) || [];
             
-            matches.slice(0, 3).forEach(match => {
-              const cleaned = match.trim();
-              if (!cleaned.includes('http') && !cleaned.includes('www.') &&
-                  !cleaned.toLowerCase().includes('cookie') &&
-                  !cleaned.toLowerCase().includes('privacy') &&
-                  !cleaned.toLowerCase().includes('unusual traffic')) {
-                results.push({
-                  question: cleaned,
-                  method: 'pattern-match',
-                  confidence: 'low'
+            if (lang === 'he') {
+              // Hebrew question patterns
+              const hebrewPatterns = [
+                /מה זה[^?]{5,80}\?/g,
+                /איך[^?]{5,80}\?/g,
+                /למה[^?]{5,80}\?/g,
+                /מתי[^?]{5,80}\?/g,
+                /איפה[^?]{5,80}\?/g,
+                /האם[^?]{5,80}\?/g,
+                /כמה[^?]{5,80}\?/g,
+                /מי[^?]{5,80}\?/g
+              ];
+              
+              hebrewPatterns.forEach(pattern => {
+                const matches = bodyText.match(pattern) || [];
+                matches.slice(0, 2).forEach(match => {
+                  const cleaned = match.trim();
+                  if (!cleaned.includes('http') && cleaned.length > 10) {
+                    results.push({
+                      question: cleaned,
+                      method: 'hebrew-pattern',
+                      confidence: 'medium'
+                    });
+                  }
                 });
-              }
-            });
+              });
+            } else {
+              // English pattern matching
+              const questionPattern = /([A-Z][A-Za-z\s,'-]{15,150}\?)/g;
+              const matches = bodyText.match(questionPattern) || [];
+              
+              matches.slice(0, 3).forEach(match => {
+                const cleaned = match.trim();
+                if (!cleaned.includes('http') && !cleaned.includes('www.') &&
+                    !cleaned.toLowerCase().includes('cookie') &&
+                    !cleaned.toLowerCase().includes('privacy') &&
+                    !cleaned.toLowerCase().includes('unusual traffic')) {
+                  results.push({
+                    question: cleaned,
+                    method: 'pattern-match',
+                    confidence: 'low'
+                  });
+                }
+              });
+            }
           }
 
           return results;
-        });
+        }, language);
 
         if (questions.length > 0) {
           allQuestions = questions;
@@ -1940,6 +1973,7 @@ async function extractPAA(page, query) {
       success: true,
       source: 'google_paa',
       strategyUsed: strategyWorked ? 'success' : 'all_failed',
+      language: language,
       note: uniqueQuestions.length === 0 ? 
         'No PAA questions found. Google may have detected automation or the query may not trigger PAA.' : 
         `Found ${uniqueQuestions.length} questions using anti-bot strategies`
@@ -1953,30 +1987,11 @@ async function extractPAA(page, query) {
       error: error.message,
       success: false,
       timestamp: new Date().toISOString(),
+      language: language,
       note: 'Extraction failed - possible Google bot detection or network issues'
     };
   }
 }
-
-// ============== עדכון קטן לdebug endpoint - הוסף בדיקת blocking ==============
-
-// במקום הפונקציה הקיימת של debug, הוסף את הבדיקה הזאת:
-/*
-// Check if we got blocked - הוסף את זה בתוך debug endpoint
-const blockingInfo = await page.evaluate(() => {
-  return {
-    isBlocked: document.body.innerText.includes('unusual traffic') ||
-               document.body.innerText.includes('Why did this happen') ||
-               document.URL.includes('/sorry/'),
-    blockingText: document.body.innerText.includes('unusual traffic') ? 
-                  document.body.innerText.substring(0, 500) : null,
-    currentUrl: document.URL,
-    title: document.title
-  };
-});
-
-console.log('🔍 Blocking status:', blockingInfo);
-*/
    
 // Initialize server
 startServer();
