@@ -724,7 +724,8 @@ app.get('/health', (req, res) => {
             'content-freshness',
             'markdown-extraction',
             'structured-data-extraction',
-            'screenshots'
+            'screenshots',
+            'paa-extraction'
         ],
         timestamp: new Date().toISOString()
     });
@@ -1423,6 +1424,63 @@ app.post('/api/extract/quick-check', async (req, res) => {
     }
 });
 
+// =========================================
+// PAA API ENDPOINT - הוסף כאן!
+// =========================================
+
+app.post('/api/paa', async (req, res) => {
+  console.log('🔍 PAA extraction started for:', req.body.query);
+  
+  const { query, language = 'en' } = req.body;
+  
+  if (!query) {
+    return res.status(400).json({
+      success: false,
+      error: 'Query parameter is required'
+    });
+  }
+
+  const browser = globalBrowser || await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
+  const page = await browser.newPage();
+  const startTime = Date.now();
+  
+  try {
+    // Set language preference
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': language === 'he' ? 'he-IL,he;q=0.9,en;q=0.8' : 'en-US,en;q=0.9'
+    });
+
+    // Set user agent to appear more like a regular browser
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+    const result = await extractPAA(page, query);
+    
+    res.json({
+      success: result.success,
+      data: result,
+      metadata: {
+        processingTime: Date.now() - startTime,
+        timestamp: new Date().toISOString(),
+        language: language
+      }
+    });
+
+  } catch (error) {
+    console.error('PAA API Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    if (page) await page.close();
+  }
+});
+
 // Error handling middleware
 app.use((error, req, res, next) => {
     console.error('Unhandled error:', error);
@@ -1441,7 +1499,8 @@ app.use((req, res) => {
         availableEndpoints: [
             'GET /health',
             'POST /api/seo/audit',
-            'POST /api/extract/quick-check'
+            'POST /api/extract/quick-check',
+            'POST /api/paa'
         ]
     });
 });
@@ -1480,6 +1539,135 @@ async function startServer() {
         console.error('Failed to start server:', error);
         process.exit(1);
     }
+}
+
+// =========================================
+// PAA EXTRACTION FUNCTION - הוסף כאן!
+// =========================================
+
+async function extractPAA(page, query) {
+  try {
+    console.log(`🔍 Extracting PAA for query: "${query}"`);
+    
+    // Navigate to Google search
+    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
+      waitUntil: 'networkidle'
+    });
+
+    // Wait for PAA section to potentially load
+    await page.waitForTimeout(2000);
+
+    // Multiple selectors - Google changes these frequently
+    const paaSelectors = [
+      '[data-initq]', // Current PAA container
+      '.related-question-pair', // Alternative selector
+      '[jsname="Cpkphb"]', // Another common selector
+      '.g[data-initq]', // Expanded PAA items
+      '.kno-fb-ctx', // Knowledge panel related questions
+      '.UDZeY', // Another Google selector
+      '[data-async-fc]' // Async content selector
+    ];
+
+    let paaQuestions = [];
+
+    // Try each selector until we find PAA content
+    for (const selector of paaSelectors) {
+      try {
+        const elements = await page.$$(selector);
+        if (elements.length > 0) {
+          console.log(`✅ Found PAA elements with selector: ${selector}`);
+          
+          for (const element of elements) {
+            const questionText = await element.evaluate(el => {
+              // Extract question text from various possible structures
+              const questionSelectors = [
+                '[role="button"] span',
+                '.kno-ecr-pt',
+                'h3',
+                '[data-ved] span',
+                '.RqBzHd',
+                '.JlqpRe',
+                'span'
+              ];
+              
+              for (const qSelector of questionSelectors) {
+                const qElement = el.querySelector(qSelector);
+                if (qElement && qElement.textContent && qElement.textContent.trim().includes('?')) {
+                  return qElement.textContent.trim();
+                }
+              }
+              
+              // Fallback to element text
+              const text = el.textContent?.trim();
+              if (text && text.includes('?')) {
+                return text;
+              }
+              
+              return null;
+            });
+
+            if (questionText && 
+                questionText.length > 10 && 
+                questionText.includes('?') &&
+                !paaQuestions.includes(questionText)) {
+              paaQuestions.push(questionText);
+            }
+          }
+          
+          if (paaQuestions.length > 0) break;
+        }
+      } catch (selectorError) {
+        console.log(`⚠️ Selector ${selector} failed: ${selectorError.message}`);
+        continue;
+      }
+    }
+
+    // Fallback: Look for any elements containing question marks
+    if (paaQuestions.length === 0) {
+      console.log('🔄 Trying fallback question extraction...');
+      
+      const allTextElements = await page.$$eval('*', elements => {
+        return elements
+          .map(el => el.textContent?.trim())
+          .filter(text => text && text.includes('?') && text.length > 10 && text.length < 200)
+          .filter(text => !text.toLowerCase().includes('cookie'))
+          .filter(text => !text.toLowerCase().includes('privacy'))
+          .filter(text => !text.toLowerCase().includes('terms'))
+          .slice(0, 10); // Limit to first 10 found
+      });
+
+      paaQuestions = [...new Set(allTextElements)]; // Remove duplicates
+    }
+
+    // Clean and filter questions
+    paaQuestions = paaQuestions
+      .filter(q => q && q.length > 10 && q.length < 200)
+      .filter(q => q.includes('?'))
+      .filter(q => !q.toLowerCase().includes('cookie'))
+      .filter(q => !q.toLowerCase().includes('privacy'))
+      .filter(q => !q.toLowerCase().includes('accept'))
+      .slice(0, 8); // Max 8 questions
+
+    console.log(`📊 Extracted ${paaQuestions.length} PAA questions`);
+    
+    return {
+      query: query,
+      questions: paaQuestions,
+      timestamp: new Date().toISOString(),
+      success: true,
+      source: 'google_paa'
+    };
+
+  } catch (error) {
+    console.error('❌ PAA extraction failed:', error);
+    return {
+      query: query,
+      questions: [],
+      error: error.message,
+      success: false,
+      timestamp: new Date().toISOString()
+    };
+  }
 }
 
 // Initialize server
