@@ -1653,9 +1653,11 @@ app.post('/api/paa', async (req, res) => {
 });
 
 // Alternative PAA from Bing (as backup)
+// תחליף את הקוד של /api/paa/bing עם זה:
+
 app.post('/api/paa/bing', async (req, res) => {
   try {
-    const { query } = req.body;
+    const { query, maxQuestions = 10 } = req.body;
     
     if (!query) {
       return res.status(400).json({ 
@@ -1664,39 +1666,246 @@ app.post('/api/paa/bing', async (req, res) => {
       });
     }
 
-    const browser = await chromium.launch({ headless: true });
+    console.log(`🔍 Bing PAA Search for: "${query}"`);
+
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled'
+      ]
+    });
+
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      viewport: { width: 1366, height: 768 }
+    });
+
+    const page = await context.newPage();
+    
+    try {
+      // ניגש לבינג
+      const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}`;
+      await page.goto(searchUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      });
+
+      // חכה שהעמוד ייטען
+      await delay(3000);
+
+      // נבדוק מה יש בעמוד
+      const pageContent = await page.content();
+      console.log('Page loaded, checking for PAA elements...');
+
+      // בינג PAA selectors - נבדוק כמה אפשרויות
+      const bingPAASelectors = [
+        // Selectors עדכניים לבינג
+        '[data-tag="relatedQuestions"] .b_pag',
+        '.b_pag[role="button"]',
+        '.b_pag .b_promoteText',
+        '[aria-label*="question"]',
+        '.sa_cc .sa_as',
+        '.b_rs .b_pag',
+        // נסה גם selectors גנריים
+        'div[data-tag*="related"]',
+        'div[data-tag*="question"]',
+        '.related-question',
+        '.related_question',
+        '.question-item',
+        // אולי הם בתוך iframe או section מיוחד
+        'section[aria-label*="question"]',
+        'section[aria-label*="related"]'
+      ];
+
+      let bingPAA = [];
+
+      // נבדוק כל selector
+      for (const selector of bingPAASelectors) {
+        try {
+          const questions = await page.evaluate((sel) => {
+            const elements = document.querySelectorAll(sel);
+            const foundQuestions = [];
+            
+            elements.forEach(element => {
+              let questionText = '';
+              
+              // נסה כמה דרכים לחלץ טקסט
+              if (element.textContent) {
+                questionText = element.textContent.trim();
+              } else if (element.innerText) {
+                questionText = element.innerText.trim();
+              } else if (element.getAttribute('aria-label')) {
+                questionText = element.getAttribute('aria-label').trim();
+              }
+              
+              // פילטר שאלות
+              if (questionText && 
+                  questionText.length > 5 && 
+                  questionText.length < 300 &&
+                  (questionText.includes('?') || 
+                   questionText.includes('מה') || 
+                   questionText.includes('איך') || 
+                   questionText.includes('למה') ||
+                   questionText.includes('What') ||
+                   questionText.includes('How') ||
+                   questionText.includes('Why') ||
+                   questionText.includes('When') ||
+                   questionText.includes('Where'))) {
+                foundQuestions.push(questionText);
+              }
+            });
+            
+            return foundQuestions;
+          }, selector);
+
+          if (questions.length > 0) {
+            console.log(`✅ Found ${questions.length} questions with selector: ${selector}`);
+            bingPAA = [...bingPAA, ...questions];
+          }
+        } catch (e) {
+          console.warn(`Selector ${selector} failed:`, e.message);
+        }
+      }
+
+      // אם לא מצאנו כלום, ננסה גישה אחרת
+      if (bingPAA.length === 0) {
+        console.log('No PAA found with standard selectors, trying alternative approach...');
+        
+        // נחפש טקסט שמכיל מילות שאלה
+        const alternativeQuestions = await page.evaluate(() => {
+          const allElements = document.querySelectorAll('*');
+          const potentialQuestions = [];
+          
+          for (let element of allElements) {
+            const text = element.textContent?.trim() || '';
+            
+            // חפש טקסט שנראה כמו שאלה
+            if (text.length > 10 && text.length < 200) {
+              // אנגלית
+              if (text.match(/^(What|How|Why|When|Where|Which|Who|Can|Should|Will|Is|Are|Do|Does)\s+.*\?$/i)) {
+                potentialQuestions.push(text);
+              }
+              // עברית
+              if (text.match(/(מה|איך|למה|מתי|איפה|מי|האם|כיצד|מדוע)\s+.*\?$/)) {
+                potentialQuestions.push(text);
+              }
+            }
+          }
+          
+          // הסר כפילויות
+          return [...new Set(potentialQuestions)];
+        });
+
+        if (alternativeQuestions.length > 0) {
+          console.log(`✅ Found ${alternativeQuestions.length} questions with alternative method`);
+          bingPAA = alternativeQuestions;
+        }
+      }
+
+      // נקה תוצאות
+      bingPAA = [...new Set(bingPAA)]
+        .filter(q => q.length > 5 && q.length < 300)
+        .slice(0, maxQuestions);
+
+      // אם עדיין אין תוצאות, תן דיבוג
+      if (bingPAA.length === 0) {
+        console.log('🔍 No PAA found. Let me check what\'s on the page...');
+        
+        // בדוק אם יש תוכן בכלל
+        const hasContent = await page.evaluate(() => {
+          return {
+            title: document.title,
+            bodyLength: document.body?.textContent?.length || 0,
+            hasResults: document.querySelector('.b_algo') !== null,
+            url: window.location.href
+          };
+        });
+        
+        console.log('Page debug info:', hasContent);
+      }
+
+      console.log(`✅ Final result: ${bingPAA.length} Bing PAA questions for "${query}"`);
+
+      res.json({
+        success: true,
+        source: 'bing',
+        query,
+        questions: bingPAA,
+        count: bingPAA.length,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (navigationError) {
+      console.error('Bing navigation error:', navigationError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to load Bing search page',
+        details: navigationError.message
+      });
+    }
+
+  } catch (error) {
+    console.error('Bing PAA extraction error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      query: req.body.query
+    });
+  } finally {
+    if (browser) {
+      await browser.close();
+    }
+  }
+});
+
+// דרך אלטרנטיבית - בדיקה ידנית של מבנה הדף
+app.post('/api/paa/bing/debug', async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ error: 'Query required' });
+    }
+
+    const browser = await chromium.launch({ headless: false }); // לא headless לדיבוג
     const page = await browser.newPage();
     
     await page.goto(`https://www.bing.com/search?q=${encodeURIComponent(query)}`);
-    await delay(2000);
-
-    const bingPAA = await page.evaluate(() => {
-      const questions = [];
-      // Bing PAA selectors
-      document.querySelectorAll('.b_pag, .pa_content').forEach(element => {
-        const text = element.textContent?.trim();
-        if (text && text.includes('?')) {
-          questions.push(text);
-        }
-      });
-      return questions;
+    await delay(5000); // זמן לטעינה
+    
+    // קח screenshot לדיבוג
+    const screenshot = await page.screenshot({ fullPage: true });
+    
+    // חלץ מידע על המבנה
+    const pageStructure = await page.evaluate(() => {
+      return {
+        title: document.title,
+        allClasses: [...new Set([...document.querySelectorAll('*')].map(el => el.className).filter(c => c))],
+        allIds: [...new Set([...document.querySelectorAll('*')].map(el => el.id).filter(id => id))],
+        potentialPAAElements: [...document.querySelectorAll('*')].filter(el => {
+          const text = el.textContent || '';
+          return text.includes('?') && text.length > 10 && text.length < 200;
+        }).map(el => ({
+          tagName: el.tagName,
+          className: el.className,
+          textContent: el.textContent?.substring(0, 100)
+        }))
+      };
     });
-
+    
     await browser.close();
-
+    
     res.json({
       success: true,
-      source: 'bing',
       query,
-      questions: bingPAA,
-      count: bingPAA.length
+      pageStructure,
+      screenshotSize: screenshot.length
     });
 
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    res.status(500).json({ error: error.message });
   }
 });
 
