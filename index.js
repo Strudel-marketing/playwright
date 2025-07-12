@@ -1556,129 +1556,7 @@ async function extractPAA(page, query) {
     });
 
     // Wait for PAA section to potentially load
-    await page.waitForTimeout(2000);
-
-    // מצא את הפונקציה extractPAA בקוד שלך
-// והוסף את הקוד הזה בתחילת הפונקציה, מיד אחרי הlog הראשון:
-
-async function extractPAA(page, query) {
-  try {
-    console.log(`🔍 Extracting PAA for query: "${query}"`);
-    
-    // Navigate to Google search
-    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
-      waitUntil: 'networkidle'
-    });
-
-    // Wait for PAA section to potentially load
-    await page.waitForTimeout(2000);
-
-    // ====== DEBUG SECTION - הוסף את זה! ======
-    console.log('🐛 Starting debug analysis...');
-    
-    const debugInfo = await page.evaluate(() => {
-      const debug = {
-        pageTitle: document.title,
-        pageUrl: window.location.href,
-        selectorTests: {},
-        questionsFound: []
-      };
-
-      // Test specific selectors
-      const testSelectors = [
-        '[data-initq]',
-        '.related-question-pair', 
-        '[jsname="Cpkphb"]',
-        '.g[data-initq]',
-        '.kno-fb-ctx',
-        '.UDZeY',
-        '.JlqpRe',
-        '.RqBzHd',
-        '[role="button"]',
-        '[aria-expanded]',
-        '.xpc'
-      ];
-
-      testSelectors.forEach(selector => {
-        try {
-          const elements = document.querySelectorAll(selector);
-          debug.selectorTests[selector] = elements.length;
-          
-          if (elements.length > 0) {
-            Array.from(elements).forEach((el, i) => {
-              const text = el.textContent?.trim();
-              if (text && text.includes('?') && text.length > 10 && text.length < 200) {
-                debug.questionsFound.push({
-                  selector: selector,
-                  index: i,
-                  text: text.substring(0, 100),
-                  tagName: el.tagName,
-                  className: el.className
-                });
-              }
-            });
-          }
-        } catch (e) {
-          debug.selectorTests[selector] = `ERROR: ${e.message}`;
-        }
-      });
-
-      // Look for any text with question marks
-      const allText = document.body.innerText || '';
-      const questionPattern = /[^.!?]*\?[^.!?]*/g;
-      const matches = allText.match(questionPattern);
-      if (matches) {
-        debug.allQuestions = matches
-          .map(q => q.trim())
-          .filter(q => q.length > 10 && q.length < 200)
-          .filter(q => !q.includes('http'))
-          .slice(0, 5);
-      }
-
-      return debug;
-    });
-
-    console.log('🐛 Debug info:', JSON.stringify(debugInfo, null, 2));
-    
-    // ====== END DEBUG SECTION ======
-
-    // המשך הקוד הרגיל...
-    const paaSelectors = [
-      '[data-initq]', // Current PAA container
-      '.related-question-pair', // Alternative selector
-      '[jsname="Cpkphb"]', // Another common selector
-      '.g[data-initq]', // Expanded PAA items
-      '.kno-fb-ctx', // Knowledge panel related questions
-      '.UDZeY', // Another Google selector
-      '[data-async-fc]' // Async content selector
-    ];
-
-    let paaQuestions = [];
-
-    // ממשיך עם שאר הקוד כרגיל...
-    // (השאר הקוד הקיים ללא שינוי)
-    
-    // בסוף, החזר גם את הdebug info:
-    return {
-      query: query,
-      questions: paaQuestions,
-      timestamp: new Date().toISOString(),
-      success: true,
-      source: 'google_paa',
-      debug: debugInfo  // הוסף את זה!
-    };
-
-  } catch (error) {
-    console.error('❌ PAA extraction failed:', error);
-    return {
-      query: query,
-      questions: [],
-      error: error.message,
-      success: false,
-      timestamp: new Date().toISOString()
-    };
-  }
-}
+    await page.waitForTimeout(3000);
 
     // Multiple selectors - Google changes these frequently
     const paaSelectors = [
@@ -1732,6 +1610,9 @@ async function extractPAA(page, query) {
             if (questionText && 
                 questionText.length > 10 && 
                 questionText.includes('?') &&
+                !questionText.includes('http') &&
+                !questionText.includes('www.') &&
+                !questionText.toLowerCase().includes('why did this happen') &&
                 !paaQuestions.includes(questionText)) {
               paaQuestions.push(questionText);
             }
@@ -1753,10 +1634,12 @@ async function extractPAA(page, query) {
         return elements
           .map(el => el.textContent?.trim())
           .filter(text => text && text.includes('?') && text.length > 10 && text.length < 200)
+          .filter(text => !text.includes('http'))
+          .filter(text => !text.includes('www.'))
           .filter(text => !text.toLowerCase().includes('cookie'))
           .filter(text => !text.toLowerCase().includes('privacy'))
-          .filter(text => !text.toLowerCase().includes('terms'))
-          .slice(0, 10); // Limit to first 10 found
+          .filter(text => !text.toLowerCase().includes('why did this happen'))
+          .slice(0, 8);
       });
 
       paaQuestions = [...new Set(allTextElements)]; // Remove duplicates
@@ -1766,10 +1649,12 @@ async function extractPAA(page, query) {
     paaQuestions = paaQuestions
       .filter(q => q && q.length > 10 && q.length < 200)
       .filter(q => q.includes('?'))
+      .filter(q => !q.includes('http'))
+      .filter(q => !q.includes('www.'))
       .filter(q => !q.toLowerCase().includes('cookie'))
       .filter(q => !q.toLowerCase().includes('privacy'))
-      .filter(q => !q.toLowerCase().includes('accept'))
-      .slice(0, 8); // Max 8 questions
+      .filter(q => !q.toLowerCase().includes('why did this happen'))
+      .slice(0, 6); // Max 6 questions
 
     console.log(`📊 Extracted ${paaQuestions.length} PAA questions`);
     
@@ -1778,7 +1663,10 @@ async function extractPAA(page, query) {
       questions: paaQuestions,
       timestamp: new Date().toISOString(),
       success: true,
-      source: 'google_paa'
+      source: 'google_paa',
+      note: paaQuestions.length === 0 ? 
+        'No PAA questions found for this query. Google does not always show PAA for every search.' : 
+        `Found ${paaQuestions.length} real questions`
     };
 
   } catch (error) {
@@ -1792,145 +1680,6 @@ async function extractPAA(page, query) {
     };
   }
 }
-
-// הוסף את ה-endpoint הזה זמנית אחרי ה-/api/paa endpoint
-// זה יעזור לנו לגלות את הselectors הנכונים
-
-app.post('/api/paa/debug', async (req, res) => {
-  console.log('🔍 Debug PAA selectors started');
-  
-  const { query = "what is machine learning" } = req.body;
-  
-  const browser = globalBrowser || await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  
-  const page = await browser.newPage();
-  const startTime = Date.now();
-  
-  try {
-    // Navigate to Google search
-    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
-      waitUntil: 'networkidle'
-    });
-
-    await page.waitForTimeout(3000); // Wait for PAA to load
-
-    // Debug info
-    const debugInfo = await page.evaluate(() => {
-      const results = {
-        pageTitle: document.title,
-        pageUrl: window.location.href,
-        allPossibleSelectors: {},
-        elementsWithQuestions: [],
-        allTextWithQuestions: []
-      };
-
-      // Test all possible selectors
-      const testSelectors = [
-        '[data-initq]',
-        '.related-question-pair',
-        '[jsname="Cpkphb"]',
-        '.g[data-initq]',
-        '.kno-fb-ctx',
-        '.UDZeY',
-        '.JlqpRe', 
-        '.RqBzHd',
-        '[data-async-fc]',
-        '[role="heading"]',
-        '[aria-expanded]',
-        '[role="button"]',
-        '.xpc',
-        '.g-blk',
-        '[data-ved]'
-      ];
-
-      testSelectors.forEach(selector => {
-        try {
-          const elements = document.querySelectorAll(selector);
-          results.allPossibleSelectors[selector] = {
-            count: elements.length,
-            hasText: elements.length > 0 ? Array.from(elements).some(el => el.textContent?.includes('?')) : false
-          };
-        } catch (e) {
-          results.allPossibleSelectors[selector] = { error: e.message };
-        }
-      });
-
-      // Find all elements that contain question marks
-      const allElements = document.querySelectorAll('*');
-      allElements.forEach((el, index) => {
-        const text = el.textContent?.trim();
-        if (text && 
-            text.includes('?') && 
-            text.length > 10 && 
-            text.length < 200 &&
-            !text.includes('http') &&
-            !text.includes('cookie')) {
-          
-          results.elementsWithQuestions.push({
-            index,
-            tagName: el.tagName,
-            className: el.className,
-            id: el.id,
-            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-            attributes: Array.from(el.attributes).map(attr => `${attr.name}="${attr.value}"`)
-          });
-        }
-      });
-
-      // Get all text that looks like questions
-      const bodyText = document.body.innerText || '';
-      const questionPattern = /[^.!?]*\?[^.!?]*/g;
-      const matches = bodyText.match(questionPattern);
-      if (matches) {
-        results.allTextWithQuestions = matches
-          .map(q => q.trim())
-          .filter(q => q.length > 10 && q.length < 200)
-          .filter(q => !q.includes('http'))
-          .filter(q => !q.toLowerCase().includes('cookie'))
-          .slice(0, 10);
-      }
-
-      return results;
-    });
-
-    // Take a screenshot for manual inspection
-    const screenshotPath = `/app/screenshots/debug_paa_${Date.now()}.png`;
-    await page.screenshot({ 
-      path: screenshotPath, 
-      fullPage: false,
-      clip: { x: 0, y: 0, width: 1200, height: 800 }
-    });
-
-    res.json({
-      success: true,
-      query,
-      debugInfo,
-      screenshot: screenshotPath.replace('/app', ''),
-      processingTime: Date.now() - startTime,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Debug PAA Error:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      timestamp: new Date().toISOString()
-    });
-  } finally {
-    if (page) await page.close();
-  }
-});
-
-// הוסף גם route לראיית הscreenshot
-app.get('/debug/screenshot/:filename', (req, res) => {
-  const path = require('path');
-  const screenshotPath = path.join('/app/screenshots', req.params.filename);
-  res.sendFile(screenshotPath);
-});
-
+   
 // Initialize server
 startServer();
