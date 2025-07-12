@@ -1713,140 +1713,270 @@ async function startServer() {
 // PAA EXTRACTION FUNCTION - הוסף כאן!
 // =========================================
 
+// ============== עקיפת Google Bot Detection - תחליף את הפונקציה הקיימת ==============
+
 async function extractPAA(page, query) {
   try {
-    console.log(`🔍 Extracting PAA for query: "${query}"`);
+    console.log(`🔍 Enhanced PAA extraction for query: "${query}"`);
     
-    // Navigate to Google search
-    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
-      waitUntil: 'networkidle'
+    // 🎯 STEP 1: Advanced Bot Avoidance Headers
+    await page.setExtraHTTPHeaders({
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'DNT': '1',
+      'Connection': 'keep-alive',
+      'Upgrade-Insecure-Requests': '1',
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0',
+      'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+      'sec-ch-ua-mobile': '?0',
+      'sec-ch-ua-platform': '"Windows"'
     });
 
-    // Wait for PAA section to potentially load
-    await page.waitForTimeout(3000);
-
-    // Multiple selectors - Google changes these frequently
-    const paaSelectors = [
-      '[data-initq]', // Current PAA container
-      '.related-question-pair', // Alternative selector
-      '[jsname="Cpkphb"]', // Another common selector
-      '.g[data-initq]', // Expanded PAA items
-      '.kno-fb-ctx', // Knowledge panel related questions
-      '.UDZeY', // Another Google selector
-      '[data-async-fc]' // Async content selector
+    // 🎯 STEP 2: Stealth Mode Settings
+    await page.setViewportSize({ width: 1366, height: 768 }); // Common resolution
+    
+    // Add random delays to appear more human-like
+    const randomDelay = () => Math.floor(Math.random() * 1000) + 500;
+    
+    // 🎯 STEP 3: Try Multiple Search Strategies
+    const searchStrategies = [
+      // Strategy 1: Standard Google
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&gl=us`,
+      // Strategy 2: Different parameters
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en&lr=lang_en`,
+      // Strategy 3: Image search (sometimes less restricted)
+      `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=nws&hl=en`,
+      // Strategy 4: Different domain
+      `https://www.google.co.uk/search?q=${encodeURIComponent(query)}&hl=en&gl=gb`
     ];
 
-    let paaQuestions = [];
+    let allQuestions = [];
+    let strategyWorked = false;
 
-    // Try each selector until we find PAA content
-    for (const selector of paaSelectors) {
+    for (let i = 0; i < searchStrategies.length && !strategyWorked; i++) {
+      const searchUrl = searchStrategies[i];
+      console.log(`🌐 Strategy ${i + 1}: Trying ${searchUrl}`);
+      
       try {
-        const elements = await page.$$(selector);
-        if (elements.length > 0) {
-          console.log(`✅ Found PAA elements with selector: ${selector}`);
-          
-          for (const element of elements) {
-            const questionText = await element.evaluate(el => {
-              // Extract question text from various possible structures
-              const questionSelectors = [
-                '[role="button"] span',
-                '.kno-ecr-pt',
-                'h3',
-                '[data-ved] span',
-                '.RqBzHd',
-                '.JlqpRe',
-                'span'
-              ];
-              
-              for (const qSelector of questionSelectors) {
-                const qElement = el.querySelector(qSelector);
-                if (qElement && qElement.textContent && qElement.textContent.trim().includes('?')) {
-                  return qElement.textContent.trim();
-                }
-              }
-              
-              // Fallback to element text
-              const text = el.textContent?.trim();
-              if (text && text.includes('?')) {
-                return text;
-              }
-              
-              return null;
-            });
+        // Random delay before each attempt
+        await new Promise(resolve => setTimeout(resolve, randomDelay()));
+        
+        await page.goto(searchUrl, {
+          waitUntil: 'domcontentloaded',
+          timeout: 15000
+        });
 
-            if (questionText && 
-                questionText.length > 10 && 
-                questionText.includes('?') &&
-                !questionText.includes('http') &&
-                !questionText.includes('www.') &&
-                !questionText.toLowerCase().includes('why did this happen') &&
-                !paaQuestions.includes(questionText)) {
-              paaQuestions.push(questionText);
-            }
-          }
-          
-          if (paaQuestions.length > 0) break;
+        // Wait for page to settle
+        await page.waitForTimeout(2000 + Math.random() * 2000);
+
+        // 🚨 Check if we got blocked
+        const isBlocked = await page.evaluate(() => {
+          return document.body.innerText.includes('unusual traffic') ||
+                 document.body.innerText.includes('Why did this happen') ||
+                 document.body.innerText.includes('Our systems have detected') ||
+                 document.URL.includes('/sorry/') ||
+                 document.title.includes('sorry');
+        });
+
+        if (isBlocked) {
+          console.log(`🚫 Strategy ${i + 1}: Blocked by Google anti-bot`);
+          continue; // Try next strategy
         }
-      } catch (selectorError) {
-        console.log(`⚠️ Selector ${selector} failed: ${selectorError.message}`);
+
+        // ✅ We got through! Extract PAA
+        console.log(`✅ Strategy ${i + 1}: Success! Extracting PAA...`);
+        
+        // Extract PAA with multiple methods
+        const questions = await page.evaluate(() => {
+          const results = [];
+          
+          // Method 1: Classic data-initq
+          const dataInitElements = document.querySelectorAll('[data-initq]');
+          dataInitElements.forEach(el => {
+            if (el.dataset.initq && el.dataset.initq.includes('?')) {
+              results.push({
+                question: el.dataset.initq,
+                method: 'data-initq',
+                confidence: 'high'
+              });
+            }
+          });
+
+          // Method 2: Related questions container
+          const relatedQuestions = document.querySelectorAll('.related-question-pair, .JlqpRe, .yuRUbf');
+          relatedQuestions.forEach(container => {
+            const questionEl = container.querySelector('h3, [role="button"], .CSkcDe, .sATSWe');
+            if (questionEl) {
+              const qText = questionEl.textContent?.trim();
+              if (qText && qText.includes('?') && qText.length > 15 && qText.length < 200) {
+                results.push({
+                  question: qText,
+                  method: 'related-container',
+                  confidence: 'medium'
+                });
+              }
+            }
+          });
+
+          // Method 3: Expandable elements
+          const expandableElements = document.querySelectorAll('[role="button"]');
+          expandableElements.forEach(el => {
+            const text = el.textContent?.trim();
+            if (text && text.includes('?') && text.length > 15 && text.length < 200) {
+              // Filter out obvious non-questions
+              if (!text.includes('http') && !text.includes('www.') && 
+                  !text.toLowerCase().includes('cookie') &&
+                  !text.toLowerCase().includes('privacy')) {
+                results.push({
+                  question: text,
+                  method: 'expandable',
+                  confidence: 'medium'
+                });
+              }
+            }
+          });
+
+          // Method 4: Look for "People also ask" section
+          const paaHeaders = Array.from(document.querySelectorAll('*')).filter(el => 
+            el.textContent?.includes('People also ask') || 
+            el.textContent?.includes('Related questions')
+          );
+          
+          paaHeaders.forEach(header => {
+            const parent = header.closest('div, section');
+            if (parent) {
+              const questions = parent.querySelectorAll('[data-initq], h3, [role="button"]');
+              questions.forEach(q => {
+                const qText = q.textContent?.trim() || q.dataset?.initq;
+                if (qText && qText.includes('?') && qText.length > 15) {
+                  results.push({
+                    question: qText,
+                    method: 'paa-section',
+                    confidence: 'high'
+                  });
+                }
+              });
+            }
+          });
+
+          // Method 5: Pattern matching (fallback)
+          if (results.length === 0) {
+            const bodyText = document.body.innerText;
+            const questionPattern = /([A-Z][A-Za-z\s,'-]{15,150}\?)/g;
+            const matches = bodyText.match(questionPattern) || [];
+            
+            matches.slice(0, 3).forEach(match => {
+              const cleaned = match.trim();
+              if (!cleaned.includes('http') && !cleaned.includes('www.') &&
+                  !cleaned.toLowerCase().includes('cookie') &&
+                  !cleaned.toLowerCase().includes('privacy') &&
+                  !cleaned.toLowerCase().includes('unusual traffic')) {
+                results.push({
+                  question: cleaned,
+                  method: 'pattern-match',
+                  confidence: 'low'
+                });
+              }
+            });
+          }
+
+          return results;
+        });
+
+        if (questions.length > 0) {
+          allQuestions = questions;
+          strategyWorked = true;
+          console.log(`🎯 Found ${questions.length} questions with strategy ${i + 1}`);
+        } else {
+          console.log(`⚠️ Strategy ${i + 1}: No questions found, trying next...`);
+        }
+
+      } catch (strategyError) {
+        console.error(`❌ Strategy ${i + 1} failed:`, strategyError.message);
         continue;
       }
     }
 
-    // Fallback: Look for any elements containing question marks
-    if (paaQuestions.length === 0) {
-      console.log('🔄 Trying fallback question extraction...');
+    // Clean and deduplicate results
+    const uniqueQuestions = [];
+    const seenQuestions = new Set();
+    
+    // Sort by confidence
+    allQuestions.sort((a, b) => {
+      const confidenceOrder = { high: 3, medium: 2, low: 1 };
+      return confidenceOrder[b.confidence] - confidenceOrder[a.confidence];
+    });
+    
+    allQuestions.forEach(q => {
+      const cleanQuestion = q.question.trim();
+      const normalizedQuestion = cleanQuestion.toLowerCase().replace(/\s+/g, ' ');
       
-      const allTextElements = await page.$$eval('*', elements => {
-        return elements
-          .map(el => el.textContent?.trim())
-          .filter(text => text && text.includes('?') && text.length > 10 && text.length < 200)
-          .filter(text => !text.includes('http'))
-          .filter(text => !text.includes('www.'))
-          .filter(text => !text.toLowerCase().includes('cookie'))
-          .filter(text => !text.toLowerCase().includes('privacy'))
-          .filter(text => !text.toLowerCase().includes('why did this happen'))
-          .slice(0, 8);
-      });
+      if (cleanQuestion.length > 15 && 
+          cleanQuestion.length < 200 && 
+          cleanQuestion.includes('?') &&
+          !cleanQuestion.includes('http') &&
+          !cleanQuestion.includes('www.') &&
+          !cleanQuestion.toLowerCase().includes('unusual traffic') &&
+          !cleanQuestion.toLowerCase().includes('why did this happen') &&
+          !seenQuestions.has(normalizedQuestion)) {
+        
+        seenQuestions.add(normalizedQuestion);
+        uniqueQuestions.push(cleanQuestion);
+      }
+    });
 
-      paaQuestions = [...new Set(allTextElements)]; // Remove duplicates
-    }
-
-    // Clean and filter questions
-    paaQuestions = paaQuestions
-      .filter(q => q && q.length > 10 && q.length < 200)
-      .filter(q => q.includes('?'))
-      .filter(q => !q.includes('http'))
-      .filter(q => !q.includes('www.'))
-      .filter(q => !q.toLowerCase().includes('cookie'))
-      .filter(q => !q.toLowerCase().includes('privacy'))
-      .filter(q => !q.toLowerCase().includes('why did this happen'))
-      .slice(0, 6); // Max 6 questions
-
-    console.log(`📊 Extracted ${paaQuestions.length} PAA questions`);
+    console.log(`🎯 Final result: ${uniqueQuestions.length} unique questions`);
     
     return {
       query: query,
-      questions: paaQuestions,
+      questions: uniqueQuestions.slice(0, 6), // Max 6 questions
       timestamp: new Date().toISOString(),
       success: true,
       source: 'google_paa',
-      note: paaQuestions.length === 0 ? 
-        'No PAA questions found for this query. Google does not always show PAA for every search.' : 
-        `Found ${paaQuestions.length} real questions`
+      strategyUsed: strategyWorked ? 'success' : 'all_failed',
+      note: uniqueQuestions.length === 0 ? 
+        'No PAA questions found. Google may have detected automation or the query may not trigger PAA.' : 
+        `Found ${uniqueQuestions.length} questions using anti-bot strategies`
     };
 
   } catch (error) {
-    console.error('❌ PAA extraction failed:', error);
+    console.error('❌ Enhanced PAA extraction failed:', error);
     return {
       query: query,
       questions: [],
       error: error.message,
       success: false,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      note: 'Extraction failed - possible Google bot detection or network issues'
     };
   }
 }
+
+// ============== עדכון קטן לdebug endpoint - הוסף בדיקת blocking ==============
+
+// במקום הפונקציה הקיימת של debug, הוסף את הבדיקה הזאת:
+/*
+// Check if we got blocked - הוסף את זה בתוך debug endpoint
+const blockingInfo = await page.evaluate(() => {
+  return {
+    isBlocked: document.body.innerText.includes('unusual traffic') ||
+               document.body.innerText.includes('Why did this happen') ||
+               document.URL.includes('/sorry/'),
+    blockingText: document.body.innerText.includes('unusual traffic') ? 
+                  document.body.innerText.substring(0, 500) : null,
+    currentUrl: document.URL,
+    title: document.title
+  };
+});
+
+console.log('🔍 Blocking status:', blockingInfo);
+*/
    
 // Initialize server
 startServer();
