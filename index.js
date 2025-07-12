@@ -1671,5 +1671,144 @@ async function extractPAA(page, query) {
   }
 }
 
+// הוסף את ה-endpoint הזה זמנית אחרי ה-/api/paa endpoint
+// זה יעזור לנו לגלות את הselectors הנכונים
+
+app.post('/api/paa/debug', async (req, res) => {
+  console.log('🔍 Debug PAA selectors started');
+  
+  const { query = "what is machine learning" } = req.body;
+  
+  const browser = globalBrowser || await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
+  const page = await browser.newPage();
+  const startTime = Date.now();
+  
+  try {
+    // Navigate to Google search
+    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
+      waitUntil: 'networkidle'
+    });
+
+    await page.waitForTimeout(3000); // Wait for PAA to load
+
+    // Debug info
+    const debugInfo = await page.evaluate(() => {
+      const results = {
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+        allPossibleSelectors: {},
+        elementsWithQuestions: [],
+        allTextWithQuestions: []
+      };
+
+      // Test all possible selectors
+      const testSelectors = [
+        '[data-initq]',
+        '.related-question-pair',
+        '[jsname="Cpkphb"]',
+        '.g[data-initq]',
+        '.kno-fb-ctx',
+        '.UDZeY',
+        '.JlqpRe', 
+        '.RqBzHd',
+        '[data-async-fc]',
+        '[role="heading"]',
+        '[aria-expanded]',
+        '[role="button"]',
+        '.xpc',
+        '.g-blk',
+        '[data-ved]'
+      ];
+
+      testSelectors.forEach(selector => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          results.allPossibleSelectors[selector] = {
+            count: elements.length,
+            hasText: elements.length > 0 ? Array.from(elements).some(el => el.textContent?.includes('?')) : false
+          };
+        } catch (e) {
+          results.allPossibleSelectors[selector] = { error: e.message };
+        }
+      });
+
+      // Find all elements that contain question marks
+      const allElements = document.querySelectorAll('*');
+      allElements.forEach((el, index) => {
+        const text = el.textContent?.trim();
+        if (text && 
+            text.includes('?') && 
+            text.length > 10 && 
+            text.length < 200 &&
+            !text.includes('http') &&
+            !text.includes('cookie')) {
+          
+          results.elementsWithQuestions.push({
+            index,
+            tagName: el.tagName,
+            className: el.className,
+            id: el.id,
+            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+            attributes: Array.from(el.attributes).map(attr => `${attr.name}="${attr.value}"`)
+          });
+        }
+      });
+
+      // Get all text that looks like questions
+      const bodyText = document.body.innerText || '';
+      const questionPattern = /[^.!?]*\?[^.!?]*/g;
+      const matches = bodyText.match(questionPattern);
+      if (matches) {
+        results.allTextWithQuestions = matches
+          .map(q => q.trim())
+          .filter(q => q.length > 10 && q.length < 200)
+          .filter(q => !q.includes('http'))
+          .filter(q => !q.toLowerCase().includes('cookie'))
+          .slice(0, 10);
+      }
+
+      return results;
+    });
+
+    // Take a screenshot for manual inspection
+    const screenshotPath = `/app/screenshots/debug_paa_${Date.now()}.png`;
+    await page.screenshot({ 
+      path: screenshotPath, 
+      fullPage: false,
+      clip: { x: 0, y: 0, width: 1200, height: 800 }
+    });
+
+    res.json({
+      success: true,
+      query,
+      debugInfo,
+      screenshot: screenshotPath.replace('/app', ''),
+      processingTime: Date.now() - startTime,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Debug PAA Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    if (page) await page.close();
+  }
+});
+
+// הוסף גם route לראיית הscreenshot
+app.get('/debug/screenshot/:filename', (req, res) => {
+  const path = require('path');
+  const screenshotPath = path.join('/app/screenshots', req.params.filename);
+  res.sendFile(screenshotPath);
+});
+
 // Initialize server
 startServer();
