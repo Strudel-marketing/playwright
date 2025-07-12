@@ -1428,64 +1428,294 @@ app.post('/api/extract/quick-check', async (req, res) => {
 // PAA API ENDPOINT - הוסף כאן!
 // =========================================
 
+// PAA Scraper עם הגנה מפני חסימות
+// הוסף את זה ל-src/index.js ב-Playwright
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Rate limiting - מקסימום 1 בקשה ל-30 שניות
+const lastPAARequest = new Map();
+
 app.post('/api/paa', async (req, res) => {
-  console.log('🔍 PAA extraction started for:', req.body.query);
-  
-  const { query, language = 'en' } = req.body;
-  
-  if (!query) {
-    return res.status(400).json({
-      success: false,
-      error: 'Query parameter is required'
-    });
-  }
-
-  const browser = globalBrowser || await chromium.launch({
-    headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
-  
-  const page = await browser.newPage();
-  const startTime = Date.now();
-  
   try {
-    // Set language preference
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': language === 'he' ? 'he-IL,he;q=0.9,en;q=0.8' : 'en-US,en;q=0.9'
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Query parameter is required' 
+      });
+    }
+
+    // Rate limiting check
+    const clientIP = req.ip || req.connection.remoteAddress;
+    const lastRequest = lastPAARequest.get(clientIP);
+    const now = Date.now();
+    
+    if (lastRequest && (now - lastRequest) < 30000) {
+      return res.status(429).json({
+        success: false,
+        error: 'Rate limit: Please wait 30 seconds between PAA requests',
+        retryAfter: Math.ceil((30000 - (now - lastRequest)) / 1000)
+      });
+    }
+
+    lastPAARequest.set(clientIP, now);
+
+    console.log(`🔍 PAA Search for: "${query}" from IP: ${clientIP}`);
+
+    // Launch browser with stealth configuration
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--disable-dev-shm-usage',
+        '--no-first-run',
+        '--disable-extensions',
+        '--disable-default-apps',
+        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      ]
     });
 
-    // Set user agent to appear more like a regular browser
-    await page.setExtraHTTPHeaders({
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    });
-    const result = await extractPAA(page, query);
-    
-    res.json({
-      success: result.success,
-      data: result,
-      metadata: {
-        processingTime: Date.now() - startTime,
-        timestamp: new Date().toISOString(),
-        language: language
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+      viewport: { width: 1366, height: 768 },
+      locale: 'he-IL',
+      timezoneId: 'Asia/Jerusalem',
+      permissions: [],
+      extraHTTPHeaders: {
+        'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive'
       }
     });
 
+    const page = await context.newPage();
+
+    // Anti-detection scripts
+    await page.addInitScript(() => {
+      // Hide webdriver property
+      Object.defineProperty(navigator, 'webdriver', {
+        get: () => undefined,
+      });
+
+      // Mock chrome object
+      window.chrome = {
+        runtime: {},
+      };
+
+      // Mock permissions
+      const originalQuery = window.navigator.permissions.query;
+      window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+          Promise.resolve({ state: Notification.permission }) :
+          originalQuery(parameters)
+      );
+
+      // Plugin count
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+      });
+
+      // Languages
+      Object.defineProperty(navigator, 'languages', {
+        get: () => ['he-IL', 'he', 'en-US', 'en'],
+      });
+    });
+
+    // Random delay before navigation
+    await delay(Math.random() * 2000 + 1000);
+
+    try {
+      // Navigate to Google search
+      const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=he&gl=IL`;
+      await page.goto(searchUrl, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      });
+
+      // Wait for potential PAA elements to load
+      await delay(3000);
+
+      // Try multiple PAA selectors (Google changes them frequently)
+      const paaSelectors = [
+        '[jsname="N760b"]', // Common PAA selector
+        '[data-initq]', // Alternative PAA selector
+        '.related-question-pair', // Another variant
+        '.g[data-initq]', // Yet another variant
+        '[jsaction*="expand"]' // Expandable questions
+      ];
+
+      let paaQuestions = [];
+
+      for (const selector of paaSelectors) {
+        try {
+          const questions = await page.evaluate((sel) => {
+            const elements = document.querySelectorAll(sel);
+            const questions = [];
+            
+            elements.forEach(element => {
+              // Try different text extraction methods
+              let questionText = '';
+              
+              if (element.textContent) {
+                questionText = element.textContent.trim();
+              } else if (element.innerText) {
+                questionText = element.innerText.trim();
+              }
+              
+              // Filter out non-question text and duplicates
+              if (questionText && 
+                  questionText.length > 10 && 
+                  questionText.length < 200 &&
+                  (questionText.includes('?') || 
+                   questionText.includes('מה') || 
+                   questionText.includes('איך') || 
+                   questionText.includes('למה') ||
+                   questionText.includes('What') ||
+                   questionText.includes('How') ||
+                   questionText.includes('Why'))) {
+                questions.push(questionText);
+              }
+            });
+            
+            return [...new Set(questions)]; // Remove duplicates
+          }, selector);
+
+          if (questions.length > 0) {
+            paaQuestions = [...paaQuestions, ...questions];
+          }
+        } catch (e) {
+          console.warn(`Selector ${selector} failed:`, e.message);
+        }
+      }
+
+      // Remove duplicates and clean results
+      paaQuestions = [...new Set(paaQuestions)]
+        .filter(q => q.length > 5 && q.length < 300)
+        .slice(0, 10); // Limit to 10 questions
+
+      console.log(`✅ Found ${paaQuestions.length} PAA questions for "${query}"`);
+
+      if (paaQuestions.length === 0) {
+        // If no PAA found, check if we're blocked
+        const pageTitle = await page.title();
+        const pageContent = await page.content();
+        
+        if (pageTitle.includes('unusual traffic') || 
+            pageContent.includes('detected unusual traffic') ||
+            pageContent.includes('captcha')) {
+          console.warn('🚨 Detected blocking/captcha');
+          return res.status(503).json({
+            success: false,
+            error: 'Google has temporarily blocked this IP. Please try again later.',
+            blocked: true,
+            retryAfter: 3600 // Suggest retry after 1 hour
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        query,
+        questions: paaQuestions,
+        count: paaQuestions.length,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (navigationError) {
+      console.error('Navigation error:', navigationError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to load Google search page',
+        details: navigationError.message
+      });
+    }
+
   } catch (error) {
-    console.error('PAA API Error:', error);
+    console.error('PAA extraction error:', error);
     res.status(500).json({
       success: false,
       error: error.message,
-      timestamp: new Date().toISOString()
+      query: req.body.query
     });
   } finally {
-    if (page) await page.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 });
 
-// =========================================
-// הוסף רק את זה אחרי הendpoint הקיים של PAA
-// אל תמחק כלום מהקוד הקיים!
-// =========================================
+// Alternative PAA from Bing (as backup)
+app.post('/api/paa/bing', async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Query parameter is required' 
+      });
+    }
+
+    const browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    
+    await page.goto(`https://www.bing.com/search?q=${encodeURIComponent(query)}`);
+    await delay(2000);
+
+    const bingPAA = await page.evaluate(() => {
+      const questions = [];
+      // Bing PAA selectors
+      document.querySelectorAll('.b_pag, .pa_content').forEach(element => {
+        const text = element.textContent?.trim();
+        if (text && text.includes('?')) {
+          questions.push(text);
+        }
+      });
+      return questions;
+    });
+
+    await browser.close();
+
+    res.json({
+      success: true,
+      source: 'bing',
+      query,
+      questions: bingPAA,
+      count: bingPAA.length
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// PAA Status endpoint
+app.get('/api/paa/status', async (req, res) => {
+  const clientIP = req.ip || req.connection.remoteAddress;
+  const lastRequest = lastPAARequest.get(clientIP);
+  const now = Date.now();
+  const canRequest = !lastRequest || (now - lastRequest) >= 30000;
+
+  res.json({
+    canRequest,
+    lastRequest: lastRequest ? new Date(lastRequest).toISOString() : null,
+    nextAvailable: lastRequest ? 
+      new Date(lastRequest + 30000).toISOString() : 
+      new Date().toISOString(),
+    rateLimitSeconds: 30
+  });
+});
 
 // 🔍 PAA Debug Endpoint - הוסף את זה אחרי הendpoint של /api/paa
 app.post('/api/paa/debug', async (req, res) => {
