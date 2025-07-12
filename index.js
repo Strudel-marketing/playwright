@@ -1558,6 +1558,128 @@ async function extractPAA(page, query) {
     // Wait for PAA section to potentially load
     await page.waitForTimeout(2000);
 
+    // מצא את הפונקציה extractPAA בקוד שלך
+// והוסף את הקוד הזה בתחילת הפונקציה, מיד אחרי הlog הראשון:
+
+async function extractPAA(page, query) {
+  try {
+    console.log(`🔍 Extracting PAA for query: "${query}"`);
+    
+    // Navigate to Google search
+    await page.goto(`https://www.google.com/search?q=${encodeURIComponent(query)}&hl=en`, {
+      waitUntil: 'networkidle'
+    });
+
+    // Wait for PAA section to potentially load
+    await page.waitForTimeout(2000);
+
+    // ====== DEBUG SECTION - הוסף את זה! ======
+    console.log('🐛 Starting debug analysis...');
+    
+    const debugInfo = await page.evaluate(() => {
+      const debug = {
+        pageTitle: document.title,
+        pageUrl: window.location.href,
+        selectorTests: {},
+        questionsFound: []
+      };
+
+      // Test specific selectors
+      const testSelectors = [
+        '[data-initq]',
+        '.related-question-pair', 
+        '[jsname="Cpkphb"]',
+        '.g[data-initq]',
+        '.kno-fb-ctx',
+        '.UDZeY',
+        '.JlqpRe',
+        '.RqBzHd',
+        '[role="button"]',
+        '[aria-expanded]',
+        '.xpc'
+      ];
+
+      testSelectors.forEach(selector => {
+        try {
+          const elements = document.querySelectorAll(selector);
+          debug.selectorTests[selector] = elements.length;
+          
+          if (elements.length > 0) {
+            Array.from(elements).forEach((el, i) => {
+              const text = el.textContent?.trim();
+              if (text && text.includes('?') && text.length > 10 && text.length < 200) {
+                debug.questionsFound.push({
+                  selector: selector,
+                  index: i,
+                  text: text.substring(0, 100),
+                  tagName: el.tagName,
+                  className: el.className
+                });
+              }
+            });
+          }
+        } catch (e) {
+          debug.selectorTests[selector] = `ERROR: ${e.message}`;
+        }
+      });
+
+      // Look for any text with question marks
+      const allText = document.body.innerText || '';
+      const questionPattern = /[^.!?]*\?[^.!?]*/g;
+      const matches = allText.match(questionPattern);
+      if (matches) {
+        debug.allQuestions = matches
+          .map(q => q.trim())
+          .filter(q => q.length > 10 && q.length < 200)
+          .filter(q => !q.includes('http'))
+          .slice(0, 5);
+      }
+
+      return debug;
+    });
+
+    console.log('🐛 Debug info:', JSON.stringify(debugInfo, null, 2));
+    
+    // ====== END DEBUG SECTION ======
+
+    // המשך הקוד הרגיל...
+    const paaSelectors = [
+      '[data-initq]', // Current PAA container
+      '.related-question-pair', // Alternative selector
+      '[jsname="Cpkphb"]', // Another common selector
+      '.g[data-initq]', // Expanded PAA items
+      '.kno-fb-ctx', // Knowledge panel related questions
+      '.UDZeY', // Another Google selector
+      '[data-async-fc]' // Async content selector
+    ];
+
+    let paaQuestions = [];
+
+    // ממשיך עם שאר הקוד כרגיל...
+    // (השאר הקוד הקיים ללא שינוי)
+    
+    // בסוף, החזר גם את הdebug info:
+    return {
+      query: query,
+      questions: paaQuestions,
+      timestamp: new Date().toISOString(),
+      success: true,
+      source: 'google_paa',
+      debug: debugInfo  // הוסף את זה!
+    };
+
+  } catch (error) {
+    console.error('❌ PAA extraction failed:', error);
+    return {
+      query: query,
+      questions: [],
+      error: error.message,
+      success: false,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
     // Multiple selectors - Google changes these frequently
     const paaSelectors = [
       '[data-initq]', // Current PAA container
