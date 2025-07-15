@@ -1424,12 +1424,375 @@ app.post('/api/extract/quick-check', async (req, res) => {
     }
 });
 
-// =========================================
-// PAA API ENDPOINT - הוסף כאן!
-// =========================================
+// 🔧 הוסף את זה לקובץ /app/index.js אחרי השורה של app.post('/api/extract/quick-check')
 
-// PAA Scraper עם הגנה מפני חסימות
-// הוסף את זה ל-src/index.js ב-Playwright
+// ===== SCHEMA EXTRACTION ENDPOINT =====
+app.post('/api/extract/schema', async (req, res) => {
+    const { url, options = {} } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    console.log(`🔍 Schema extraction started for: ${url}`);
+    
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        const timeout = options.timeout || 30000;
+        page.setDefaultTimeout(timeout);
+        page.setDefaultNavigationTimeout(timeout);
+        
+        await page.goto(url, { 
+            waitUntil: 'networkidle',
+            timeout 
+        });
+        
+        // Extract comprehensive structured data
+        const structuredData = await page.evaluate(() => {
+            const data = {
+                jsonLD: [],
+                microdata: [],
+                rdfa: [],
+                openGraph: {},
+                twitterCard: {},
+                seoMeta: {},
+                productData: {},
+                breadcrumbs: [],
+                organization: {},
+                person: {},
+                article: {},
+                faqData: []
+            };
+            
+            // Extract JSON-LD
+            const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
+            jsonLdScripts.forEach(script => {
+                try {
+                    const jsonData = JSON.parse(script.textContent);
+                    data.jsonLD.push(jsonData);
+                    
+                    // Parse specific schema types
+                    function parseSchema(obj) {
+                        if (!obj || typeof obj !== 'object') return;
+                        
+                        const type = obj['@type'];
+                        if (!type) return;
+                        
+                        if (type === 'Product' || type.includes('Product')) {
+                            data.productData = {
+                                name: obj.name,
+                                description: obj.description,
+                                price: obj.offers?.price,
+                                currency: obj.offers?.priceCurrency,
+                                availability: obj.offers?.availability,
+                                brand: obj.brand?.name,
+                                sku: obj.sku,
+                                gtin: obj.gtin,
+                                rating: obj.aggregateRating?.ratingValue,
+                                reviewCount: obj.aggregateRating?.reviewCount
+                            };
+                        }
+                        
+                        if (type === 'Organization') {
+                            data.organization = {
+                                name: obj.name,
+                                url: obj.url,
+                                logo: obj.logo,
+                                description: obj.description,
+                                address: obj.address,
+                                telephone: obj.telephone,
+                                email: obj.email
+                            };
+                        }
+                        
+                        if (type === 'Article' || type === 'BlogPosting') {
+                            data.article = {
+                                headline: obj.headline,
+                                author: obj.author?.name,
+                                datePublished: obj.datePublished,
+                                dateModified: obj.dateModified,
+                                description: obj.description,
+                                image: obj.image,
+                                publisher: obj.publisher?.name
+                            };
+                        }
+                        
+                        if (type === 'FAQPage') {
+                            if (obj.mainEntity && Array.isArray(obj.mainEntity)) {
+                                data.faqData = obj.mainEntity.map(faq => ({
+                                    question: faq.name,
+                                    answer: faq.acceptedAnswer?.text
+                                }));
+                            }
+                        }
+                        
+                        if (type === 'BreadcrumbList') {
+                            if (obj.itemListElement) {
+                                data.breadcrumbs = obj.itemListElement.map(item => ({
+                                    name: item.name,
+                                    url: item.item
+                                }));
+                            }
+                        }
+                        
+                        // Recursively check nested objects
+                        Object.values(obj).forEach(value => {
+                            if (Array.isArray(value)) {
+                                value.forEach(item => parseSchema(item));
+                            } else if (typeof value === 'object') {
+                                parseSchema(value);
+                            }
+                        });
+                    }
+                    
+                    if (Array.isArray(jsonData)) {
+                        jsonData.forEach(item => parseSchema(item));
+                    } else {
+                        parseSchema(jsonData);
+                    }
+                    
+                } catch (e) {
+                    console.log('Invalid JSON-LD:', e);
+                }
+            });
+            
+            // Extract Microdata
+            const microdataItems = document.querySelectorAll('[itemscope]');
+            microdataItems.forEach(item => {
+                const microdataObj = {
+                    type: item.getAttribute('itemtype'),
+                    properties: {}
+                };
+                
+                const props = item.querySelectorAll('[itemprop]');
+                props.forEach(prop => {
+                    const propName = prop.getAttribute('itemprop');
+                    const propValue = prop.getAttribute('content') || 
+                                    prop.getAttribute('href') || 
+                                    prop.textContent?.trim();
+                    if (propName && propValue) {
+                        microdataObj.properties[propName] = propValue;
+                    }
+                });
+                
+                if (Object.keys(microdataObj.properties).length > 0) {
+                    data.microdata.push(microdataObj);
+                }
+            });
+            
+            // Extract RDFa
+            const rdfaElements = document.querySelectorAll('[typeof], [property]');
+            rdfaElements.forEach(el => {
+                const rdfaObj = {
+                    type: el.getAttribute('typeof'),
+                    property: el.getAttribute('property'),
+                    content: el.getAttribute('content') || el.textContent?.trim()
+                };
+                if (rdfaObj.type || rdfaObj.property) {
+                    data.rdfa.push(rdfaObj);
+                }
+            });
+            
+            // Extract OpenGraph
+            const ogTags = document.querySelectorAll('meta[property^="og:"]');
+            ogTags.forEach(tag => {
+                const property = tag.getAttribute('property').replace('og:', '');
+                const content = tag.getAttribute('content');
+                if (property && content) {
+                    data.openGraph[property] = content;
+                }
+            });
+            
+            // Extract Twitter Cards
+            const twitterTags = document.querySelectorAll('meta[name^="twitter:"]');
+            twitterTags.forEach(tag => {
+                const name = tag.getAttribute('name').replace('twitter:', '');
+                const content = tag.getAttribute('content');
+                if (name && content) {
+                    data.twitterCard[name] = content;
+                }
+            });
+            
+            // Extract basic SEO meta
+            data.seoMeta.title = document.title;
+            data.seoMeta.description = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+            data.seoMeta.canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
+            data.seoMeta.keywords = document.querySelector('meta[name="keywords"]')?.getAttribute('content') || '';
+            data.seoMeta.robots = document.querySelector('meta[name="robots"]')?.getAttribute('content') || '';
+            data.seoMeta.viewport = document.querySelector('meta[name="viewport"]')?.getAttribute('content') || '';
+            data.seoMeta.charset = document.characterSet;
+            data.seoMeta.lang = document.documentElement.lang;
+            
+            return data;
+        });
+        
+        console.log(`✅ Schema extraction completed for ${url}`);
+        
+        res.json({
+            success: true,
+            url: url,
+            timestamp: new Date().toISOString(),
+            data: structuredData
+        });
+        
+    } catch (error) {
+        console.error(`❌ Schema extraction error for ${url}:`, error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            url: url
+        });
+    } finally {
+        if (page) {
+            await page.close();
+        }
+    }
+});
+
+// ===== SCREENSHOT ENDPOINT =====
+app.post('/api/screenshot', async (req, res) => {
+    const { url, options = {} } = req.body;
+    
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    console.log(`📸 Screenshot started for: ${url}`);
+    
+    const browser = globalBrowser || await chromium.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    });
+    
+    const page = await browser.newPage();
+    
+    try {
+        // Screenshot options with defaults
+        const screenshotOptions = {
+            fullPage: options.fullPage !== false,
+            viewport: options.viewport || { width: 1920, height: 1080 },
+            quality: options.quality || 90,
+            format: options.format || 'png',
+            selector: options.selector || null,
+            waitFor: options.waitFor || 'networkidle',
+            blockPopups: options.blockPopups !== false
+        };
+        
+        // Set viewport
+        await page.setViewportSize(screenshotOptions.viewport);
+        
+        // Block popups if requested
+        if (screenshotOptions.blockPopups) {
+            await page.route('**/*', (route, request) => {
+                const resourceType = request.resourceType();
+                if (resourceType === 'image' && request.url().includes('popup')) {
+                    route.abort();
+                } else {
+                    route.continue();
+                }
+            });
+        }
+        
+        // Navigate to URL
+        await page.goto(url, { 
+            waitUntil: screenshotOptions.waitFor,
+            timeout: 30000 
+        });
+        
+        // Wait for page to stabilize
+        await page.waitForTimeout(2000);
+        
+        // Hide cookie banners and popups
+        await page.addStyleTag({
+            content: `
+                .cookie-banner, .cookie-notice, .gdpr-banner,
+                .popup-overlay, .modal-overlay, .newsletter-popup,
+                [class*="cookie"], [class*="gdpr"], [class*="popup"],
+                [id*="cookie"], [id*="popup"], [id*="modal"] {
+                    display: none !important;
+                }
+            `
+        });
+        
+        let screenshotBuffer;
+        const timestamp = Date.now();
+        const filename = `screenshot_${timestamp}.${screenshotOptions.format}`;
+        
+        // Create screenshots directory if it doesn't exist
+        const fs = require('fs');
+        const screenshotsDir = '/app/screenshots';
+        if (!fs.existsSync(screenshotsDir)) {
+            fs.mkdirSync(screenshotsDir, { recursive: true });
+        }
+        
+        const filepath = `${screenshotsDir}/${filename}`;
+        
+        if (screenshotOptions.selector) {
+            // Screenshot specific element
+            const element = await page.locator(screenshotOptions.selector);
+            if (await element.count() > 0) {
+                screenshotBuffer = await element.screenshot({
+                    path: filepath,
+                    quality: screenshotOptions.format === 'jpeg' ? screenshotOptions.quality : undefined
+                });
+            } else {
+                throw new Error(`Element with selector "${screenshotOptions.selector}" not found`);
+            }
+        } else {
+            // Full page or viewport screenshot
+            screenshotBuffer = await page.screenshot({
+                path: filepath,
+                fullPage: screenshotOptions.fullPage,
+                quality: screenshotOptions.format === 'jpeg' ? screenshotOptions.quality : undefined
+            });
+        }
+        
+        const screenshotUrl = `/screenshots/${filename}`;
+        
+        console.log(`📸 Screenshot saved: ${screenshotUrl}`);
+        
+        // Cleanup old screenshots
+        cleanupOldScreenshots();
+        
+        res.json({
+            success: true,
+            url: url,
+            screenshot: {
+                filename: filename,
+                url: screenshotUrl,
+                path: filepath,
+                size: screenshotBuffer.length,
+                format: screenshotOptions.format,
+                options: screenshotOptions
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error(`❌ Screenshot error for ${url}:`, error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            url: url
+        });
+    } finally {
+        if (page) {
+            await page.close();
+        }
+    }
+});
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -2107,6 +2470,8 @@ app.use((req, res) => {
             'GET /health',
             'POST /api/seo/audit',
             'POST /api/extract/quick-check',
+            'POST /api/extract/schema',  
+            'POST /api/screenshot',      
             'POST /api/paa'
         ]
     });
