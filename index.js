@@ -1723,8 +1723,8 @@ app.post('/api/screenshot', async (req, res) => {
         
         // Navigate to URL
         await page.goto(url, { 
-            waitUntil: screenshotOptions.waitFor,
-            timeout: 30000 
+            waitUntil: 'domcontentloaded',
+            timeout: 60000
         });
         
         // Wait for page to stabilize
