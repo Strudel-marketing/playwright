@@ -38,8 +38,8 @@
     "helmet": "^7.1.0",
     "compression": "^1.7.4",
     "morgan": "^1.10.0",
-    "lighthouse": "^11.10.0",
-    "chrome-launcher": "^0.15.0"
+    "lighthouse": "^12.80",
+    "chrome-launcher": "^1.10"
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
