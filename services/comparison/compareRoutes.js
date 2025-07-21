@@ -18,7 +18,7 @@ router.post('/visual', async (req, res) => {
       });
     }
 
-    const result = await compareService.compareVisually(url1, url2, options);
+    const result = await compareService.visualCompare(url1, url2, options);
     
     return res.json({
       success: true,
@@ -116,7 +116,7 @@ router.post('/full', async (req, res) => {
 
     // Run all comparison types in parallel
     const [visualResult, contentResult, structureResult] = await Promise.all([
-      compareService.compareVisually(url1, url2, options),
+      compareService.visualCompare(url1, url2, options),
       compareService.compareContent(url1, url2, options),
       compareService.compareStructure(url1, url2, options)
     ]);
