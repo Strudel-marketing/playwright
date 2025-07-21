@@ -1,8 +1,24 @@
-const lighthouse = require('lighthouse');
-const chromeLauncher = require('chrome-launcher');
+// Try to load lighthouse dependencies with error handling
+let lighthouse, chromeLauncher;
+
+try {
+    lighthouse = require('lighthouse');
+    chromeLauncher = require('chrome-launcher');
+    console.log('✅ Lighthouse dependencies loaded successfully');
+} catch (error) {
+    console.log('⚠️ Lighthouse dependencies not found, lighthouse features will be disabled:', error.message);
+}
 
 class LighthouseService {
     async runLighthouse(url, options = {}) {
+        if (!lighthouse || !chromeLauncher) {
+            return {
+                success: false,
+                error: 'Lighthouse dependencies not available',
+                url
+            };
+        }
+
         let chrome;
         
         try {
@@ -41,31 +57,11 @@ class LighthouseService {
                 metrics: {
                     firstContentfulPaint: audits['first-contentful-paint']?.numericValue,
                     largestContentfulPaint: audits['largest-contentful-paint']?.numericValue,
-                    firstMeaningfulPaint: audits['first-meaningful-paint']?.numericValue,
                     speedIndex: audits['speed-index']?.numericValue,
                     totalBlockingTime: audits['total-blocking-time']?.numericValue,
                     cumulativeLayoutShift: audits['cumulative-layout-shift']?.numericValue,
                     timeToInteractive: audits['interactive']?.numericValue
                 },
-                opportunities: Object.keys(audits)
-                    .filter(key => audits[key].details && audits[key].details.type === 'opportunity')
-                    .map(key => ({
-                        id: key,
-                        title: audits[key].title,
-                        description: audits[key].description,
-                        score: audits[key].score,
-                        numericValue: audits[key].numericValue,
-                        displayValue: audits[key].displayValue
-                    })),
-                diagnostics: Object.keys(audits)
-                    .filter(key => audits[key].details && audits[key].details.type === 'diagnostic')
-                    .map(key => ({
-                        id: key,
-                        title: audits[key].title,
-                        description: audits[key].description,
-                        score: audits[key].score,
-                        displayValue: audits[key].displayValue
-                    })),
                 fullReport: lhr
             };
 
@@ -107,4 +103,8 @@ class LighthouseService {
     }
 }
 
-module.exports = { runLighthouse: new LighthouseService().runLighthouse.bind(new LighthouseService()) };
+const lighthouseService = new LighthouseService();
+
+module.exports = { 
+    runLighthouse: lighthouseService.runLighthouse.bind(lighthouseService)
+};
