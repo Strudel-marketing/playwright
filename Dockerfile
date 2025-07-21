@@ -26,6 +26,11 @@ RUN echo " Verifying lighthouse installation..." && \
 # Install Playwright browsers
 RUN npx playwright install --with-deps
 
+# Find and set Chrome path for lighthouse
+RUN CHROME_PATH=$(find /ms-playwright -name "chrome" -type f -executable | head -1) && \
+    echo "Found Chrome at: $CHROME_PATH" && \
+    echo "export CHROME_PATH=$CHROME_PATH" >> /etc/environment
+
 # Copy application code and all necessary directories
 COPY index.js ./
 COPY services/ ./services/
@@ -46,6 +51,7 @@ EXPOSE 3000
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV CHROME_PATH=/ms-playwright/chromium-*/chrome-linux/chrome
 
 # Start the application
 CMD ["node", "index.js"]
