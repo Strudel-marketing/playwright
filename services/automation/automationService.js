@@ -738,5 +738,6 @@ class AutomationService {
       await browserPool.release(page, browser);
     }
   }
+}
 
 module.exports = new AutomationService();
