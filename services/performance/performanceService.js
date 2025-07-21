@@ -1,24 +1,13 @@
 // Try to load lighthouse dependencies with error handling
 let lighthouse, chromeLauncher;
 
-async function loadLighthouseDependencies() {
-    try {
-        // Use dynamic import for ES modules
-        lighthouse = await import('lighthouse');
-        chromeLauncher = await import('chrome-launcher');
-        console.log('✅ Performance service lighthouse dependencies loaded successfully');
-        return true;
-    } catch (error) {
-        console.log('⚠️ Performance service lighthouse dependencies not found, lighthouse features will be disabled:', error.message);
-        return false;
-    }
+try {
+    lighthouse = require('lighthouse');
+    chromeLauncher = require('chrome-launcher');
+    console.log('✅ Performance service lighthouse dependencies loaded successfully');
+} catch (error) {
+    console.log('⚠️ Performance service lighthouse dependencies not found, lighthouse features will be disabled:', error.message);
 }
-
-// Initialize dependencies on module load
-let dependenciesLoaded = false;
-loadLighthouseDependencies().then(loaded => {
-    dependenciesLoaded = loaded;
-});
 
 /**
  * Runs Lighthouse performance analysis on a given URL
@@ -27,11 +16,6 @@ loadLighthouseDependencies().then(loaded => {
  * @returns {Object} Lighthouse analysis results
  */
 async function runLighthouseAnalysis(url, options = {}) {
-  // Ensure dependencies are loaded
-  if (!dependenciesLoaded) {
-    await loadLighthouseDependencies();
-  }
-  
   if (!lighthouse || !chromeLauncher) {
     return {
       success: false,
@@ -43,7 +27,7 @@ async function runLighthouseAnalysis(url, options = {}) {
   let chrome;
   
   try {
-    chrome = await chromeLauncher.default.launch({ 
+    chrome = await chromeLauncher.launch({ 
       chromeFlags: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
     });
 
@@ -55,7 +39,7 @@ async function runLighthouseAnalysis(url, options = {}) {
       ...options
     };
 
-    const runnerResult = await lighthouse.default(url, lighthouseOptions);
+    const runnerResult = await lighthouse(url, lighthouseOptions);
     
     return {
       success: true,
