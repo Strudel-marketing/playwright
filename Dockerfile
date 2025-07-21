@@ -13,6 +13,9 @@ COPY package*.json ./
 # Clean npm cache and install Node.js dependencies
 RUN npm cache clean --force && npm install
 
+# Manual install of lighthouse and chrome-launcher to ensure they are available
+RUN npm install lighthouse@^12.8.0 chrome-launcher@^1.2.0 --save
+
 # Install Playwright browsers
 RUN npx playwright install --with-deps
 
