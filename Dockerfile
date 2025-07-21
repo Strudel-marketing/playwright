@@ -20,9 +20,9 @@ COPY utils/ ./utils/
 COPY helpers/ ./helpers/
 COPY .env.example ./.env.example
 
-# Copy additional files if they exist
-COPY schema-validator.js ./schema-validator.js 2>/dev/null || true
-COPY comprehensive-test.sh ./comprehensive-test.sh 2>/dev/null || true
+# Copy additional files if they exist (using proper shell commands)
+COPY schema-validator.js ./schema-validator.js
+COPY comprehensive-test.sh ./comprehensive-test.sh
 
 # Create necessary directories with proper permissions
 RUN mkdir -p downloads tmp logs screenshots && \
