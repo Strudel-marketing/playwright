@@ -7,9 +7,49 @@ const execAsync = promisify(exec);
 
 // Check if lighthouse CLI is available
 let lighthouseAvailable = false;
+let chromePath = null;
+
+async function findChromePath() {
+    // Try environment variable first
+    if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) {
+        return process.env.CHROME_PATH;
+    }
+    
+    // Try common Playwright Chrome locations
+    const possiblePaths = [
+        '/ms-playwright/chromium-*/chrome-linux/chrome',
+        '/ms-playwright/chromium-*/chrome',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/chromium'
+    ];
+    
+    for (const pathPattern of possiblePaths) {
+        try {
+            if (pathPattern.includes('*')) {
+                // Handle glob patterns
+                const { stdout } = await execAsync(`ls ${pathPattern} 2>/dev/null | head -1`);
+                const foundPath = stdout.trim();
+                if (foundPath && fs.existsSync(foundPath)) {
+                    return foundPath;
+                }
+            } else if (fs.existsSync(pathPattern)) {
+                return pathPattern;
+            }
+        } catch (error) {
+            // Continue to next path
+        }
+    }
+    
+    return null;
+}
 
 async function checkLighthouseAvailability() {
     try {
+        // Find Chrome path
+        chromePath = await findChromePath();
+        console.log('🔍 Performance service Chrome path found:', chromePath);
+        
         await execAsync('npx lighthouse --version');
         lighthouseAvailable = true;
         console.log('✅ Performance service lighthouse CLI available');
@@ -51,19 +91,39 @@ async function runLighthouseAnalysis(url, options = {}) {
     const categories = options.categories || ['performance'];
     const categoriesFlag = categories.map(cat => `--only-categories=${cat}`).join(' ');
     
-    const command = `npx lighthouse "${url}" \
+    // Build Chrome flags
+    const chromeFlags = [
+        '--headless',
+        '--no-sandbox', 
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+        '--disable-extensions'
+    ].join(' ');
+    
+    let command = `npx lighthouse "${url}" \
         --output=json \
         --output-path="${outputFile}" \
-        --chrome-flags="--headless --no-sandbox --disable-dev-shm-usage" \
+        --chrome-flags="${chromeFlags}" \
         --quiet \
         ${categoriesFlag}`;
+    
+    // Add Chrome path if available
+    if (chromePath) {
+        command = `CHROME_PATH="${chromePath}" ${command}`;
+    }
 
     console.log('⚡ Running Lighthouse performance analysis for:', url);
+    console.log('🔧 Using Chrome path:', chromePath || 'system default');
     
     // Execute lighthouse CLI
     const { stdout, stderr } = await execAsync(command, { 
-        timeout: 60000, // 60 second timeout
-        maxBuffer: 1024 * 1024 * 10 // 10MB buffer
+        timeout: 90000, // 90 second timeout
+        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+        env: { 
+            ...process.env, 
+            CHROME_PATH: chromePath || process.env.CHROME_PATH 
+        }
     });
 
     // Read the output file
