@@ -165,4 +165,32 @@ router.post('/monitor', async (req, res) => {
   }
 });
 
+/**
+ * @route POST /api/automation/analyze-forms
+ * @description Analyze all forms on a page for automation purposes
+ * @access Public
+ */
+router.post('/analyze-forms', async (req, res) => {
+  try {
+    const { url, options } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'URL parameter is required' 
+      });
+    }
+
+    const result = await automationService.analyzeFormsOnPage(url, options || {});
+    
+    return res.json(result);
+  } catch (error) {
+    console.error('Form analysis error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Error analyzing forms' 
+    });
+  }
+});
+
 module.exports = router;
