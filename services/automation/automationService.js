@@ -543,6 +543,200 @@ class AutomationService {
       await browserPool.release(browser);
     }
   }
-}
+
+  /**
+   * Analyze all forms on a page for automation purposes
+   * @param {string} url - URL to analyze
+   * @param {Object} options - Additional options
+   * @returns {Object} - Detailed form analysis for automation
+   */
+  async analyzeFormsOnPage(url, options = {}) {
+    const { page, browser } = await browserPool.acquire();
+    
+    try {
+      const startTime = Date.now();
+      await page.goto(url, { waitUntil: options.waitUntil || 'networkidle', timeout: options.timeout || 30000 });
+      
+      const formsAnalysis = await page.evaluate(() => {
+        const forms = Array.from(document.querySelectorAll('form'));
+        
+        return forms.map((form, index) => {
+          // Get form attributes
+          const formData = {
+            index: index,
+            selector: form.id ? `#${form.id}` : form.className ? `.${form.className.split(' ')[0]}` : `form:nth-child(${index + 1})`,
+            id: form.id || null,
+            className: form.className || null,
+            action: form.action || null,
+            method: form.method || 'GET',
+            enctype: form.enctype || null,
+            target: form.target || null,
+            fields: [],
+            submitButtons: []
+          };
+          
+          // Analyze all form fields
+          const inputs = form.querySelectorAll('input, textarea, select');
+          inputs.forEach((field, fieldIndex) => {
+            const fieldData = {
+              index: fieldIndex,
+              tagName: field.tagName.toLowerCase(),
+              type: field.type || 'text',
+              name: field.name || null,
+              id: field.id || null,
+              className: field.className || null,
+              selector: field.id ? `#${field.id}` : field.name ? `[name="${field.name}"]` : `${field.tagName.toLowerCase()}:nth-child(${fieldIndex + 1})`,
+              placeholder: field.placeholder || null,
+              value: field.value || null,
+              required: field.required || false,
+              disabled: field.disabled || false,
+              readonly: field.readOnly || false,
+              maxLength: field.maxLength > 0 ? field.maxLength : null,
+              minLength: field.minLength > 0 ? field.minLength : null,
+              pattern: field.pattern || null,
+              autocomplete: field.autocomplete || null,
+              label: null
+            };
+            
+            // Try to find associated label
+            if (field.id) {
+              const label = document.querySelector(`label[for="${field.id}"]`);
+              if (label) {
+                fieldData.label = label.textContent.trim();
+              }
+            }
+            
+            // If no label found, look for parent label or nearby text
+            if (!fieldData.label) {
+              const parentLabel = field.closest('label');
+              if (parentLabel) {
+                fieldData.label = parentLabel.textContent.trim();
+              } else {
+                // Look for preceding text or sibling elements
+                const prevSibling = field.previousElementSibling;
+                if (prevSibling && (prevSibling.tagName === 'LABEL' || prevSibling.tagName === 'SPAN')) {
+                  fieldData.label = prevSibling.textContent.trim();
+                }
+              }
+            }
+            
+            // Handle select options
+            if (field.tagName.toLowerCase() === 'select') {
+              fieldData.options = Array.from(field.options).map(option => ({
+                value: option.value,
+                text: option.textContent.trim(),
+                selected: option.selected
+              }));
+            }
+            
+            formData.fields.push(fieldData);
+          });
+          
+          // Find submit buttons
+          const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type])');
+          submitButtons.forEach((button, btnIndex) => {
+            const buttonData = {
+              index: btnIndex,
+              tagName: button.tagName.toLowerCase(),
+              type: button.type || 'submit',
+              name: button.name || null,
+              id: button.id || null,
+              className: button.className || null,
+              selector: button.id ? `#${button.id}` : button.name ? `[name="${button.name}"]` : `button:nth-child(${btnIndex + 1})`,
+              text: button.textContent.trim() || button.value || null,
+              value: button.value || null,
+              disabled: button.disabled || false
+            };
+            
+            formData.submitButtons.push(buttonData);
+          });
+          
+          return formData;
+        });
+      });
+      
+      const executionTime = Date.now() - startTime;
+      
+      // Generate automation suggestions
+      const automationSuggestions = formsAnalysis.map(form => {
+        const actions = [];
+        
+        // Add actions for each field
+        form.fields.forEach(field => {
+          if (field.type === 'text' || field.type === 'email' || field.type === 'password' || field.type === 'tel') {
+            actions.push({
+              type: 'type',
+              selector: field.selector,
+              text: field.placeholder ? `[${field.placeholder}]` : `[${field.name || field.type}]`,
+              description: `Fill ${field.label || field.name || field.type} field`
+            });
+          } else if (field.type === 'checkbox' || field.type === 'radio') {
+            actions.push({
+              type: 'click',
+              selector: field.selector,
+              description: `Select ${field.label || field.name || field.type}`
+            });
+          } else if (field.tagName === 'select') {
+            actions.push({
+              type: 'select',
+              selector: field.selector,
+              value: field.options.length > 0 ? field.options[0].value : '',
+              description: `Select option from ${field.label || field.name || 'dropdown'}`
+            });
+          } else if (field.tagName === 'textarea') {
+            actions.push({
+              type: 'type',
+              selector: field.selector,
+              text: `[${field.placeholder || field.name || 'message'}]`,
+              description: `Fill ${field.label || field.name || 'textarea'} field`
+            });
+          }
+        });
+        
+        // Add submit action
+        if (form.submitButtons.length > 0) {
+          actions.push({
+            type: 'click',
+            selector: form.submitButtons[0].selector,
+            description: `Submit ${form.action ? 'form to ' + form.action : 'form'}`
+          });
+        }
+        
+        return {
+          formSelector: form.selector,
+          formAction: form.action,
+          suggestedActions: actions
+        };
+      });
+      
+      return {
+        success: true,
+        url: url,
+        timestamp: new Date().toISOString(),
+        executionTime: executionTime,
+        analysis: {
+          totalForms: formsAnalysis.length,
+          forms: formsAnalysis,
+          automationSuggestions: automationSuggestions
+        }
+      };
+      
+    } catch (error) {
+      console.error('Form analysis error:', error);
+      return {
+        success: false,
+        url: url,
+        timestamp: new Date().toISOString(),
+        error: error.message,
+        analysis: {
+          totalForms: 0,
+          forms: [],
+          automationSuggestions: []
+        }
+      };
+    } finally {
+      await browserPool.release(page, browser);
+    }
+  }
 
 module.exports = new AutomationService();
