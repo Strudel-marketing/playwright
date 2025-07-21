@@ -148,4 +148,97 @@ router.post('/full', async (req, res) => {
   }
 });
 
+/**
+ * @route POST /api/compare/advanced
+ * @description Advanced comparison of content and JSON-LD schemas between one main URL and up to 5 competitor URLs
+ * @access Public
+ */
+router.post('/advanced', async (req, res) => {
+  try {
+    const { mainUrl, competitorUrls, options = {} } = req.body;
+    
+    if (!mainUrl) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'mainUrl is required' 
+      });
+    }
+
+    if (!competitorUrls || !Array.isArray(competitorUrls) || competitorUrls.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'competitorUrls array is required (max 5 URLs)' 
+      });
+    }
+
+    if (competitorUrls.length > 5) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Maximum 5 competitor URLs allowed' 
+      });
+    }
+
+    console.log(`🔍 Advanced comparison: ${mainUrl} vs ${competitorUrls.length} competitors`);
+
+    const result = await compareService.advancedCompare(mainUrl, competitorUrls, options);
+    
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      mainUrl,
+      competitorUrls,
+      comparison: result
+    });
+  } catch (error) {
+    console.error('Advanced comparison error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Error performing advanced comparison' 
+    });
+  }
+});
+
+/**
+ * @route POST /api/compare/schemas
+ * @description Compare JSON-LD schemas between URLs
+ * @access Public
+ */
+router.post('/schemas', async (req, res) => {
+  try {
+    const { mainUrl, competitorUrls, options = {} } = req.body;
+    
+    if (!mainUrl) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'mainUrl is required' 
+      });
+    }
+
+    if (!competitorUrls || !Array.isArray(competitorUrls)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'competitorUrls array is required' 
+      });
+    }
+
+    console.log(`📊 Schema comparison: ${mainUrl} vs ${competitorUrls.length} competitors`);
+
+    const result = await compareService.compareSchemas(mainUrl, competitorUrls, options);
+    
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      mainUrl,
+      competitorUrls,
+      schemaComparison: result
+    });
+  } catch (error) {
+    console.error('Schema comparison error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Error performing schema comparison' 
+    });
+  }
+});
+
 module.exports = router;
