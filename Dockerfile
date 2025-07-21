@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install Node.js dependencies
-RUN npm install --only=production
+RUN npm install --omit=dev
 
 # Install Playwright browsers
 RUN npx playwright install --with-deps
