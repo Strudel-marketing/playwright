@@ -12,6 +12,10 @@ class BrowserPool {
         this.browser = null;
         this.pages = new Map();
         this.isInitialized = false;
+        this.requestCounts = new Map();
+        this.maxRequestsPerMinute = 10;
+        this.minDelayBetweenRequests = 500;
+        this.maxDelayBetweenRequests = 2000;
     }
 
     /**
@@ -145,6 +149,152 @@ class BrowserPool {
         } catch (error) {
             console.error('Error closing browser:', error);
         }
+    }
+
+    getRandomViewport() {
+        const viewports = [
+            { width: 1920, height: 1080 },
+            { width: 1366, height: 768 },
+            { width: 1440, height: 900 },
+            { width: 1680, height: 1050 },
+            { width: 1920, height: 1200 },
+        ];
+        return viewports[Math.floor(Math.random() * viewports.length)];
+    }
+
+    /**
+     * Check if we can make a request to a domain (rate limiting)
+     * @param {string} url - URL to check
+     * @returns {boolean} - Whether request is allowed
+     */
+    canMakeRequest(url) {
+        try {
+            const domain = new URL(url).hostname;
+            const now = Date.now();
+            
+            if (!this.requestCounts.has(domain)) {
+                this.requestCounts.set(domain, { count: 0, lastReset: now });
+                return true;
+            }
+            
+            const domainData = this.requestCounts.get(domain);
+            
+            // Reset counter if a minute has passed
+            if (now - domainData.lastReset > 60000) {
+                domainData.count = 0;
+                domainData.lastReset = now;
+            }
+            
+            return domainData.count < this.maxRequestsPerMinute;
+        } catch (error) {
+            console.warn('Rate limiting check failed:', error);
+            return true; // Allow request if check fails
+        }
+    }
+
+    /**
+     * Record a request to a domain
+     * @param {string} url - URL that was requested
+     */
+    recordRequest(url) {
+        try {
+            const domain = new URL(url).hostname;
+            const now = Date.now();
+            
+            if (!this.requestCounts.has(domain)) {
+                this.requestCounts.set(domain, { count: 1, lastReset: now });
+            } else {
+                const domainData = this.requestCounts.get(domain);
+                domainData.count++;
+            }
+        } catch (error) {
+            console.warn('Request recording failed:', error);
+        }
+    }
+
+    /**
+     * Get random delay between requests
+     * @returns {number} - Delay in milliseconds
+     */
+    getRandomDelay() {
+        return Math.floor(Math.random() * (this.maxDelayBetweenRequests - this.minDelayBetweenRequests + 1)) + this.minDelayBetweenRequests;
+    }
+
+    /**
+     * Safe navigation with rate limiting and delays
+     * @param {Object} page - Playwright page object
+     * @param {string} url - URL to navigate to
+     * @param {Object} options - Navigation options
+     * @returns {Promise} - Navigation promise
+     */
+    async safeNavigate(page, url, options = {}) {
+        // Check rate limiting
+        if (!this.canMakeRequest(url)) {
+            const domain = new URL(url).hostname;
+            throw new Error(`Rate limit exceeded for domain: ${domain}. Please wait before making more requests.`);
+        }
+
+        // Add random delay before navigation
+        const delay = this.getRandomDelay();
+        console.log(`⏱️ Adding ${delay}ms delay before navigating to ${url}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+
+        // Record the request
+        this.recordRequest(url);
+
+        // Navigate with enhanced options
+        const navigationOptions = {
+            waitUntil: 'networkidle',
+            timeout: 30000,
+            ...options
+        };
+
+        try {
+            const response = await page.goto(url, navigationOptions);
+            
+            // Add small random delay after navigation
+            const postDelay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
+            await new Promise(resolve => setTimeout(resolve, postDelay));
+            
+            return response;
+        } catch (error) {
+            console.error(`Navigation failed for ${url}:`, error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Enhanced acquire method with anti-detection
+     * @param {Object} options - Options for page creation
+     * @returns {Promise<Object>} - Page and browser objects
+     */
+    async acquire(options = {}) {
+        const { page, context } = await this.getPage(null, {
+            // Enhanced anti-detection options
+            userAgent: this.getRandomUserAgent(),
+            viewport: this.getRandomViewport(),
+            locale: options.locale || 'en-US',
+            timezoneId: options.timezoneId || 'America/New_York',
+            // Add realistic headers
+            extraHTTPHeaders: {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+                'Accept-Language': 'en-US,en;q=0.9,he;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                ...options.extraHTTPHeaders
+            },
+            ...options
+        });
+
+        // Add mouse movement simulation
+        await page.mouse.move(
+            Math.floor(Math.random() * 100) + 100,
+            Math.floor(Math.random() * 100) + 100
+        );
+
+        return { page, browser: this.browser, context, safeNavigate: (url, navOptions) => this.safeNavigate(page, url, navOptions) };
     }
 }
 
