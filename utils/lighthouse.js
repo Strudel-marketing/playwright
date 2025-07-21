@@ -1,32 +1,16 @@
 // Try to load lighthouse dependencies with error handling
 let lighthouse, chromeLauncher;
 
-async function loadLighthouseDependencies() {
-    try {
-        // Use dynamic import for ES modules
-        lighthouse = await import('lighthouse');
-        chromeLauncher = await import('chrome-launcher');
-        console.log('✅ Lighthouse dependencies loaded successfully');
-        return true;
-    } catch (error) {
-        console.log('⚠️ Lighthouse dependencies not found, lighthouse features will be disabled:', error.message);
-        return false;
-    }
+try {
+    lighthouse = require('lighthouse');
+    chromeLauncher = require('chrome-launcher');
+    console.log('✅ Lighthouse dependencies loaded successfully');
+} catch (error) {
+    console.log('⚠️ Lighthouse dependencies not found, lighthouse features will be disabled:', error.message);
 }
-
-// Initialize dependencies on module load
-let dependenciesLoaded = false;
-loadLighthouseDependencies().then(loaded => {
-    dependenciesLoaded = loaded;
-});
 
 class LighthouseService {
     async runLighthouse(url, options = {}) {
-        // Ensure dependencies are loaded
-        if (!dependenciesLoaded) {
-            await loadLighthouseDependencies();
-        }
-        
         if (!lighthouse || !chromeLauncher) {
             return {
                 success: false,
@@ -39,7 +23,7 @@ class LighthouseService {
         
         try {
             // Launch Chrome
-            chrome = await chromeLauncher.default.launch({
+            chrome = await chromeLauncher.launch({
                 chromeFlags: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
             });
 
@@ -53,7 +37,7 @@ class LighthouseService {
             };
 
             // Run Lighthouse
-            const runnerResult = await lighthouse.default(url, lighthouseOptions);
+            const runnerResult = await lighthouse(url, lighthouseOptions);
 
             // Extract key metrics
             const { lhr } = runnerResult;
