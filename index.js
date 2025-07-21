@@ -17,6 +17,7 @@ const screenshotRoutes = require('./services/screenshots/screenshotRoutes');
 const automationRoutes = require('./services/automation/automationRoutes');
 const compareRoutes = require('./services/comparison/compareRoutes');
 const paaRoutes = require('./services/paa/paaRoutes');
+const performanceRoutes = require('./services/performance/performanceRoutes');
 
 // Import utilities
 const browserPool = require('./utils/browserPool');
@@ -56,6 +57,7 @@ app.use('/api/screenshot', screenshotRoutes);
 app.use('/api/automation', automationRoutes);
 app.use('/api/compare', compareRoutes);
 app.use('/api/paa', paaRoutes);
+app.use('/api/performance', performanceRoutes);
 
 // Start server
 app.listen(PORT, () => {
