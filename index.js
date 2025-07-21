@@ -34,55 +34,12 @@ app.use('/screenshots', express.static('/app/screenshots', {
 
 // Health Check
 app.get('/health', (req, res) => {
-    res.json({
-        State: { 
-            Health: {
-                Status: 'healthy'
-            }
-        }, 
-        status: 'OK',
-        service: 'Playwright Web Services API',
-        version: '3.0.0',
-        architecture: 'Modular Services',
-        features: [
-            'seo-analysis',
-            'schema-extraction', 
-            'structured-data',
-            'screenshots',
-            'automation',
-            'comparison',
-            'lighthouse-performance',
-            'paa-extraction'
-        ],
-        endpoints: {
-            seo: [
-                'POST /api/seo/audit',
-                'POST /api/seo/quick-check',
-                'GET /api/seo/performance'
-            ],
-            extraction: [
-                'POST /api/extract/quick-check',
-                'POST /api/extract/schema'
-            ],
-            screenshots: [
-                'POST /api/screenshot'
-            ],
-            automation: [
-                'POST /api/automation/*'
-            ],
-            comparison: [
-                'POST /api/compare/*'
-            ],
-            paa: [
-                'POST /api/paa',
-                'POST /api/paa/bing',
-                'POST /api/paa/bing/debug',
-                'POST /api/paa/debug',
-                'GET /api/paa/status'
-            ]
-        },
-        timestamp: new Date().toISOString()
-    });
+    res.status(200).send('OK');
+});
+
+// Status endpoint
+app.get('/status', (req, res) => {
+    res.json({ status: 'healthy' });
 });
 
 // Connect service routes
@@ -93,4 +50,27 @@ app.use('/api/automation', automationRoutes);
 app.use('/api/compare', compareRoutes);
 app.use('/api/paa', paaRoutes);
 
-{{ ... }}
+// Start server
+app.listen(PORT, () => {
+    console.log(`🚀 Playwright Web Services API running on port ${PORT}`);
+    console.log(`📊 SEO Analysis: http://localhost:${PORT}/api/seo/audit`);
+    console.log(`🔍 Schema Extraction: http://localhost:${PORT}/api/extract/schema`);
+    console.log(`📸 Screenshots: http://localhost:${PORT}/api/screenshot`);
+    console.log(`🤖 Automation: http://localhost:${PORT}/api/automation`);
+    console.log(`⚖️ Comparison: http://localhost:${PORT}/api/compare`);
+    console.log(`❓ PAA: http://localhost:${PORT}/api/paa`);
+    console.log(`💚 Health Check: http://localhost:${PORT}/health`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+    console.log('🛑 SIGTERM received, shutting down gracefully...');
+    await browserPool.cleanup();
+    process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('🛑 SIGINT received, shutting down gracefully...');
+    await browserPool.cleanup();
+    process.exit(0);
+});
