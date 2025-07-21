@@ -1,7 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-require('dotenv').config();
+
+// Try to load dotenv with error handling
+try {
+    require('dotenv').config();
+    console.log('✅ dotenv loaded successfully');
+} catch (error) {
+    console.log('⚠️ dotenv not found, continuing without it:', error.message);
+}
 
 // Import service routes
 const seoRoutes = require('./services/seo/seoRoutes');
