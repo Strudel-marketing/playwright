@@ -35,6 +35,11 @@ app.use('/screenshots', express.static('/app/screenshots', {
 // Health Check
 app.get('/health', (req, res) => {
     res.json({
+        State: { 
+            Health: {
+                Status: 'healthy'
+            }
+        }, 
         status: 'OK',
         service: 'Playwright Web Services API',
         version: '3.0.0',
