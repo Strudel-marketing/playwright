@@ -21,9 +21,7 @@ async function performSeoAudit(url, options = {}) {
     const { page, context, id } = await browserPool.getPage();
     
     try {
-        // Fix: setUserAgent should be called on context, not page
-        await context.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await page.setViewportSize({ width: 1920, height: 1080 });
+        // t is alreaid rorsaeyrse rbyibrawVirPwot0hhen;creatghntxt
         
         const navigationStart = Date.now();
         await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
