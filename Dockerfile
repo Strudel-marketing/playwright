@@ -18,7 +18,6 @@ COPY index.js ./
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY helpers/ ./helpers/
-COPY .env.example ./.env.example
 
 # Copy additional files if they exist (using proper shell commands)
 COPY schema-validator.js ./schema-validator.js
