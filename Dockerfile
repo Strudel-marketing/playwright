@@ -10,11 +10,18 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Clean npm cache and install Node.js dependencies
-RUN npm cache clean --force && npm install
+# Clean npm cache and install Node.js dependencies with verbose output
+RUN npm cache clean --force && npm install --verbose
 
 # Manual install of lighthouse and chrome-launcher to ensure they are available
-RUN npm install lighthouse@^12.8.0 chrome-launcher@^1.2.0 --save
+RUN npm install lighthouse@^10.4.0 chrome-launcher@^0.15.2 --save --verbose
+
+# Verify lighthouse installation
+RUN echo " Verifying lighthouse installation..." && \
+    npm list lighthouse && \
+    npm list chrome-launcher && \
+    node -e "console.log('Testing lighthouse require...'); try { const lh = require('lighthouse'); console.log(' Lighthouse loaded successfully:', typeof lh); } catch(e) { console.log(' Lighthouse load failed:', e.message); }" && \
+    node -e "console.log('Testing chrome-launcher require...'); try { const cl = require('chrome-launcher'); console.log(' Chrome-launcher loaded successfully:', typeof cl); } catch(e) { console.log(' Chrome-launcher load failed:', e.message); }"
 
 # Install Playwright browsers
 RUN npx playwright install --with-deps
