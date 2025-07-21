@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy package files first for better caching
 COPY package*.json ./
 
-# Install Node.js dependencies
-RUN npm install
+# Clean npm cache and install Node.js dependencies
+RUN npm cache clean --force && npm install
 
 # Install Playwright browsers
 RUN npx playwright install --with-deps
