@@ -312,27 +312,13 @@ async function analyzeContent(page) {
             total: headings.h1.length + headings.h2.length + headings.h3.length
         };
         
-        const bodyText = document.body ? document.body.innerText : '';
+        // 🔥 החלק החדש המשופר
+        const bodyText = extractCleanContent();
         const words = bodyText.trim().split(/\s+/).filter(word => word.length > 0);
         const sentences = bodyText.split(/[.!?]+/).filter(s => s.trim().length > 0);
         
-        // ניתוח מילות מפתח בסיסי
-        const wordFrequency = {};
-        words.forEach(word => {
-            const cleanWord = word.toLowerCase().replace(/[^\w\u0590-\u05FF]/g, '');
-            if (cleanWord.length > 2) {
-                wordFrequency[cleanWord] = (wordFrequency[cleanWord] || 0) + 1;
-            }
-        });
-        
-        const topKeywords = Object.entries(wordFrequency)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 10)
-            .map(([word, count]) => ({
-                word,
-                count,
-                density: ((count / words.length) * 100).toFixed(2) + '%'
-            }));
+        // ניתוח מילות מפתח משופר + N-grams
+        const enhancedKeywordAnalysis = analyzeKeywordsAndNgrams(bodyText);
         
         const avgWordsPerSentence = sentences.length > 0 ? (words.length / sentences.length).toFixed(1) : 0;
         
@@ -344,15 +330,147 @@ async function analyzeContent(page) {
                 totalSentences: sentences.length,
                 avgWordsPerSentence: parseFloat(avgWordsPerSentence)
             },
-            keywords: {
-                topKeywords,
-                totalUniqueWords: Object.keys(wordFrequency).length
-            },
+            // 🔥 החלפנו keywords פשוטים ב-enhanced analysis
+            enhancedKeywords: enhancedKeywordAnalysis,
             readability: {
                 score: avgWordsPerSentence < 20 ? 80 : 60,
                 level: avgWordsPerSentence < 20 ? 'קל לקריאה' : 'בינוני'
             }
         };
+        
+        // === פונקציות עזר חדשות ===
+        
+        function extractCleanContent() {
+            // הסר סקריפטים וסטיילים לפני הניתוח
+            const tempDoc = document.cloneNode(true);
+            const scripts = tempDoc.querySelectorAll('script, style, noscript');
+            scripts.forEach(el => el.remove());
+            
+            // קח רק את התוכן הגלוי והרלוונטי
+            const contentSelectors = [
+                'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'td', 'th',
+                'div[class*="content"]', 'article', 'main', '.entry-content', 
+                '.post-content', '.content', '.text'
+            ].join(', ');
+            
+            const contentElements = tempDoc.querySelectorAll(contentSelectors);
+            let cleanText = '';
+            
+            contentElements.forEach(el => {
+                const text = el.innerText || el.textContent || '';
+                // סנן JavaScript patterns וקוד
+                const filteredText = text
+                    .replace(/function\s*\([^)]*\)\s*{[^}]*}/g, '')
+                    .replace(/var\s+\w+\s*=\s*[^;]+;/g, '')
+                    .replace(/\b(function|var|return|if|for|while|true|false|null|undefined|console|document|window|addEventListener|querySelector|getElementById)\b/g, '')
+                    .replace(/[{}();=]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                
+                if (filteredText.length > 10) {
+                    cleanText += filteredText + ' ';
+                }
+            });
+            
+            return cleanText.trim();
+        }
+        
+        function analyzeKeywordsAndNgrams(text) {
+            const hebrewText = extractHebrewText(text);
+            const englishText = extractEnglishText(text);
+            
+            return {
+                keywords: {
+                    hebrew: getTopKeywords(hebrewText, 'he'),
+                    english: getTopKeywords(englishText, 'en'),
+                    mixed: getTopKeywords(text, 'mixed')
+                },
+                ngrams: {
+                    hebrew: {
+                        bigrams: getNgrams(hebrewText, 2),
+                        trigrams: getNgrams(hebrewText, 3)
+                    },
+                    english: {
+                        bigrams: getNgrams(englishText, 2),
+                        trigrams: getNgrams(englishText, 3)
+                    }
+                },
+                summary: {
+                    totalKeywords: getTopKeywords(text, 'mixed').length,
+                    dominantLanguage: hebrewText.length > englishText.length ? 'hebrew' : 'english'
+                }
+            };
+        }
+        
+        function extractHebrewText(text) {
+            const hebrewMatches = text.match(/[\u0590-\u05FF\s]+/g);
+            return hebrewMatches ? hebrewMatches.join(' ').replace(/\s+/g, ' ').trim() : '';
+        }
+        
+        function extractEnglishText(text) {
+            const englishMatches = text.match(/[a-zA-Z\s]+/g);
+            return englishMatches ? englishMatches.join(' ').replace(/\s+/g, ' ').trim() : '';
+        }
+        
+        function getTopKeywords(text, language = 'mixed') {
+            if (!text.trim()) return [];
+            
+            const stopWords = getStopWords(language);
+            const words = text.toLowerCase()
+                .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
+                .split(/\s+/)
+                .filter(word => word.length > 2 && !stopWords.includes(word));
+            
+            const frequency = {};
+            words.forEach(word => {
+                frequency[word] = (frequency[word] || 0) + 1;
+            });
+            
+            return Object.entries(frequency)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 10)
+                .map(([word, count]) => ({
+                    word,
+                    count,
+                    density: ((count / words.length) * 100).toFixed(2) + '%'
+                }));
+        }
+        
+        function getNgrams(text, n) {
+            if (!text.trim()) return [];
+            
+            const stopWords = getStopWords('mixed');
+            const words = text.toLowerCase()
+                .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
+                .split(/\s+/)
+                .filter(word => word.length > 1 && !stopWords.includes(word));
+            
+            const ngrams = {};
+            for (let i = 0; i <= words.length - n; i++) {
+                const ngram = words.slice(i, i + n).join(' ');
+                if (ngram.trim() && ngram.split(' ').every(w => w.length > 1)) {
+                    ngrams[ngram] = (ngrams[ngram] || 0) + 1;
+                }
+            }
+            
+            return Object.entries(ngrams)
+                .sort(([,a], [,b]) => b - a)
+                .slice(0, 8)
+                .map(([phrase, count]) => ({
+                    phrase,
+                    count,
+                    density: ((count / words.length) * 100).toFixed(2) + '%'
+                }));
+        }
+        
+        function getStopWords(language) {
+            const hebrew = ['של', 'את', 'עם', 'על', 'אל', 'כל', 'לא', 'אם', 'כי', 'זה', 'היא', 'הוא', 'ב', 'ל', 'מ', 'ה', 'ו', 'אני', 'אתה', 'הם', 'אנחנו', 'יש', 'יהיה', 'היה', 'או', 'גם', 'רק', 'כמו', 'בין', 'פי', 'לפי', 'אחר', 'אחת', 'שני', 'שלש'];
+            const english = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'this', 'that', 'these', 'those', 'from', 'up', 'out', 'down', 'off', 'over', 'under', 'again', 'further', 'then', 'once'];
+            
+            if (language === 'he') return hebrew;
+            if (language === 'en') return english;
+            return [...hebrew, ...english];
+        }
     });
 }
 
