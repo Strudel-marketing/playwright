@@ -21,7 +21,7 @@ def enhanced_knowledge_graph(data):
         # Google Knowledge Graph עם Advertools
         if keywords:
             # השתמש ב-API key מהסביבה או default
-            google_api_key = os.getenv('GOOGLE_API_KEY', 'AIzaSyCJrfB3R7HJ50R-MNQkECpZqTrfyE8vsj4')
+            google_api_key = os.getenv('GOOGLE_API_KEY')
             kg_data = adv.knowledge_graph(keywords, key=google_api_key)
             
             for entity in kg_data.get('itemListElement', []):
