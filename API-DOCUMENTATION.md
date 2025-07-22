@@ -1,146 +1,418 @@
-# תיעוד API מלא - שירות Playwright Web Services
-
-## סקירה כללית
-השירות מספק פלטפורמה מקיפה לניתוח אתרים, אוטומציה, השוואות ויכולות SEO מתקדמות.
+# תיעוד API מלא - Playwright Web Services
+*מסמך פנימי מסודר עם דוגמאות אמיתיות*
 
 ---
 
 ## 🔍 SEO Analysis - `/api/seo`
 
 ### POST /api/seo/audit - ניתוח SEO מלא
-**חובה:** `url` (string)
-**אופציונלי:** `includeScreenshot` (boolean), `options` (object)
 
-**דוגמת קריאה:**
-```json
-{
-  "url": "https://example.com",
-  "includeScreenshot": true
-}
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `includeScreenshot` (boolean), `options` (object)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/seo/audit \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "includeScreenshot": true
+  }'
 ```
 
-**תשובה:** ניתוח מקיף כולל SEO score, performance metrics, headings analysis, images/links analysis, readability, keyword density, schemas, screenshot
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "url": "https://teena.co.il",
+  "results": {
+    "seoScore": {
+      "total": 81,
+      "grade": "A-",
+      "issues": ["3 images missing alt text"],
+      "recommendations": ["Add alt text to all images"]
+    },
+    "performance": {
+      "loadTime": 4300,
+      "domContentLoaded": 2100,
+      "firstContentfulPaint": 1800
+    },
+    "headings": {
+      "h1": { "count": 1, "content": ["טינה - עיצוב פנים מותאם אישית"] },
+      "h2": { "count": 4, "content": ["השירותים שלנו", "הפרויקטים שלנו"] }
+    },
+    "readability": {
+      "score": 60,
+      "wordCount": 548,
+      "language": "hebrew"
+    },
+    "screenshot": "/screenshots/teena-co-il-20240122063000.png"
+  }
+}
+```
 
 ---
 
 ## 📊 Schema Extraction - `/api/extract`
 
-### POST /api/extract/schema - חילוץ סכמות
-**חובה:** `url` (string)
-**אופציונלי:** `options` (object)
+### POST /api/extract/extract - חילוץ סכמות
 
-**תשובה:** JSON-LD, OpenGraph, Twitter Card, Microdata, RDFa
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
 
-### POST /api/extract/quick-check - בדיקה מהירה
-**חובה:** `url` (string)
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/extract/extract \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example-store.com/product/123"}'
+```
 
-**תשובה:** סיכום מהיר של סכמות קיימות
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "url": "https://example-store.com/product/123",
+  "results": {
+    "jsonLd": [
+      {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": "iPhone 15 Pro",
+        "offers": {
+          "@type": "Offer",
+          "price": "999",
+          "priceCurrency": "USD"
+        }
+      }
+    ],
+    "openGraph": {
+      "og:title": "iPhone 15 Pro",
+      "og:image": "https://example-store.com/images/iphone15pro.jpg"
+    }
+  }
+}
+```
+
+---
+
+## 🤖 Form Automation - זרימת עבודה דו-שלבית
+
+### שלב 1: POST /api/automation/analyze-forms - ניתוח טפסים
+
+**מטרה:** זיהוי וניתוח כל הטפסים בעמוד
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/automation/analyze-forms \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com/contact"}'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "formAnalysis": {
+    "formsFound": 1,
+    "forms": [
+      {
+        "index": 0,
+        "selector": "#contact-form",
+        "action": "/submit-contact",
+        "method": "POST",
+        "fields": [
+          {
+            "name": "full_name",
+            "type": "text",
+            "selector": "#full_name",
+            "label": "שם מלא *",
+            "required": true
+          },
+          {
+            "name": "email",
+            "type": "email",
+            "selector": "#email",
+            "label": "אימייל *",
+            "required": true
+          },
+          {
+            "name": "message",
+            "type": "textarea",
+            "selector": "#message",
+            "label": "הודעה *",
+            "required": true
+          }
+        ],
+        "submitButtons": [
+          {
+            "selector": "#submit-btn",
+            "text": "שלח הודעה"
+          }
+        ]
+      }
+    ],
+    "automationSuggestions": [
+      {
+        "formIndex": 0,
+        "suggestedActions": [
+          {
+            "type": "type",
+            "selector": "#full_name",
+            "text": "ישראל ישראלי"
+          },
+          {
+            "type": "type",
+            "selector": "#email",
+            "text": "israel@example.com"
+          },
+          {
+            "type": "type",
+            "selector": "#message",
+            "text": "שלום, אני מעוניין לקבל מידע נוסף."
+          },
+          {
+            "type": "click",
+            "selector": "#submit-btn"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### שלב 2: POST /api/automation/form - מילוי הטופס
+
+**מטרה:** שימוש במידע מהשלב הראשון למילוי ושליחת הטופס
+
+**דוגמת curl (בהתבסס על הניתוח):**
+```bash
+curl -X POST https://play.strudel.marketing/api/automation/form \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/contact",
+    "formData": {
+      "full_name": "ישראל ישראלי",
+      "email": "israel@example.com",
+      "message": "שלום, אני מעוניין לקבל מידע נוסף על השירותים שלכם."
+    },
+    "options": {
+      "submitForm": true,
+      "waitAfterSubmit": 5000
+    }
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "formSubmission": {
+    "fieldsFilledCount": 3,
+    "formSubmitted": true,
+    "redirectUrl": "https://example.com/thank-you",
+    "screenshot": "/screenshots/form-submit-20240122063500.png",
+    "fieldsStatus": {
+      "full_name": {
+        "status": "filled",
+        "value": "ישראל ישראלי"
+      },
+      "email": {
+        "status": "filled",
+        "value": "israel@example.com"
+      },
+      "message": {
+        "status": "filled",
+        "value": "שלום, אני מעוניין לקבל מידע נוסף על השירותים שלכם."
+      }
+    }
+  }
+}
+```
 
 ---
 
 ## 📸 Screenshots - `/api/screenshot`
 
 ### POST /api/screenshot/capture - צילום יחיד
-**חובה:** `url` (string)
-**אופציונלי:** `options` (object) - width, height, fullPage, quality, format
 
-### POST /api/screenshot/multiple - צילומים מרובים
-**חובה:** `urls` (array)
-**אופציונלי:** `options` (object)
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "options": {
+      "fullPage": true,
+      "quality": 90
+    }
+  }'
+```
 
----
-
-## 🤖 Automation - `/api/automation`
-
-### POST /api/automation/execute - ביצוע פעולות
-**חובה:** `url` (string), `actions` (array)
-**אופציונלי:** `options` (object)
-
-**פעולות זמינות:** click, type, scroll, wait, screenshot
-
-### POST /api/automation/form - מילוי טופס
-**חובה:** `url` (string), `formData` (object)
-**אופציונלי:** `options` (object) - submitForm, waitAfterSubmit
-
-### POST /api/automation/extract - חילוץ נתונים
-**חובה:** `url` (string), `extractionConfig` (object עם itemSelector)
-**אופציונלי:** fields, nextPageSelector, maxPages
-
-### POST /api/automation/monitor - ניטור שינויים
-**חובה:** `url` (string), `monitorConfig` (object עם selector)
-**אופציונלי:** interval, maxChecks, changeType
-
-### POST /api/automation/analyze-forms - ניתוח טפסים
-**חובה:** `url` (string)
-
----
-
-## ⚖️ Comparison - `/api/compare`
-
-### POST /api/compare/visual - השוואה ויזואלית
-**חובה:** `url1` (string), `url2` (string)
-**אופציונלי:** `options` (object) - threshold, fullPage
-
-### POST /api/compare/content - השוואת תוכן
-**חובה:** `url1` (string), `url2` (string)
-
-### POST /api/compare/schema - השוואת סכמות
-**חובה:** `url1` (string), `url2` (string)
-
-### POST /api/compare/advanced - השוואה מתקדמת
-**חובה:** `mainUrl` (string), `competitorUrls` (array, עד 5)
-**אופציונלי:** `options` (object) - includeVisual, includeContent, includeSchema, includeSeo
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "results": {
+    "screenshotPath": "/screenshots/teena-co-il-20240122063000.png",
+    "screenshotUrl": "https://play.strudel.marketing/screenshots/teena-co-il-20240122063000.png",
+    "dimensions": { "width": 1920, "height": 2840 },
+    "fileSize": "1.2MB"
+  }
+}
+```
 
 ---
 
 ## ❓ People Also Ask - `/api/paa`
 
 ### POST /api/paa - שאלות PAA מגוגל
-**חובה:** `query` (string)
 
-### POST /api/paa/bing - שאלות PAA מבינג
-**חובה:** `query` (string)
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/paa \
+  -H "Content-Type: application/json" \
+  -d '{"query": "עיצוב פנים לסלון קטן"}'
+```
 
-### GET /api/paa/status - סטטוס שירות
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "query": "עיצוב פנים לסלון קטן",
+  "questions": [
+    {
+      "question": "איך לעצב סלון קטן כך שייראה גדול יותר?",
+      "answer": "כדי לגרום לסלון קטן להיראות גדול יותר, מומלץ להשתמש בצבעים בהירים...",
+      "source": "https://example-design.com/small-living-room-tips"
+    }
+  ],
+  "totalQuestions": 4,
+  "language": "he"
+}
+```
 
-### POST /api/paa/debug - מצב debug
-**חובה:** `query` (string)
+---
+
+## ⚖️ Comparison - `/api/compare`
+
+### POST /api/compare/advanced - השוואה מתקדמת
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/compare/advanced \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mainUrl": "https://mydesignstudio.com",
+    "competitorUrls": [
+      "https://competitor1-design.com",
+      "https://competitor2-interior.com"
+    ],
+    "options": {
+      "includeVisual": true,
+      "includeSeo": true
+    }
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "comparison": {
+    "overallRanking": {
+      "seoScore": 2,
+      "contentQuality": 1,
+      "visualAppeal": 1
+    },
+    "recommendations": [
+      "Add LocalBusiness schema markup",
+      "Improve internal linking structure"
+    ],
+    "strengths": [
+      "Better visual design than competitors",
+      "Higher content quality score"
+    ]
+  }
+}
+```
 
 ---
 
 ## 🚀 Performance - `/api/performance`
 
 ### POST /api/performance/lighthouse - ניתוח Lighthouse
-**חובה:** `url` (string)
-**אופציונלי:** `options` (object) - categories, device, throttling
 
-### POST /api/performance/lighthouse/full - ניתוח מלא
-**זהה לעיל אבל עם כל הקטגוריות**
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "options": {
+      "device": "mobile"
+    }
+  }'
+```
 
-### POST /api/performance/quick - ניתוח מהיר
-**חובה:** `url` (string)
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "lighthouse": {
+    "performance": {
+      "score": 0.72,
+      "metrics": {
+        "firstContentfulPaint": 2100,
+        "largestContentfulPaint": 4200
+      }
+    },
+    "accessibility": {
+      "score": 0.89,
+      "issues": ["11 images missing alt text"]
+    },
+    "seo": {
+      "score": 0.85,
+      "issues": ["Meta description too short"]
+    }
+  }
+}
+```
 
 ---
 
 ## 🏥 Health & Status
 
-### GET /health - בדיקת בריאות
-**תשובה:** "OK"
+### GET /health
+```bash
+curl https://play.strudel.marketing/health
+```
+**תשובה:** `OK`
 
-### GET /status - סטטוס מפורט
-**תשובה:** JSON עם status, timestamp, uptime, version
+### GET /status
+```bash
+curl https://play.strudel.marketing/status
+```
+**תשובה:**
+```json
+{
+  "status": "healthy",
+  "uptime": 86400,
+  "version": "1.2.0"
+}
+```
 
 ---
 
-## מבנה תשובות
+## 📋 מבנה תשובות
 
 ### הצלחה:
 ```json
 {
   "success": true,
   "url": "https://example.com",
-  "results": { ... },
-  "timestamp": "2024-01-01T10:00:00Z"
+  "results": { /* תוצאות */ },
+  "timestamp": "2024-01-22T06:30:00Z"
 }
 ```
 
@@ -154,14 +426,14 @@
 ```
 
 ### קודי שגיאה:
-- 400: Bad Request (חסרים פרמטרים)
-- 429: Rate Limited (PAA)
-- 500: Internal Server Error
-- 503: Service Unavailable (חסום)
+- **400:** חסרים פרמטרים חובה
+- **429:** Rate limit (PAA)
+- **500:** שגיאה פנימית
+- **503:** שירות לא זמין
 
 ---
 
-## תכונות מיוחדות
+## 🌟 תכונות מיוחדות
 
 ### תמיכה בעברית:
 - זיהוי שפה אוטומטי
@@ -172,7 +444,6 @@
 ### Anti-Detection:
 - User agents מגוונים
 - Rate limiting חכם
-- Proxy support (PAA)
 - Browser fingerprinting protection
 
 ### Screenshots:
