@@ -229,7 +229,7 @@ function calculateSeoScore(results) {
     // === תוכן ומבנה (20 נקודות) ===
     let contentScore = 0;
     if (results.contentAnalysis?.text?.totalWords > 300) contentScore += 5;
-    if (results.contentAnalysis?.keywords?.topKeywords?.length > 5) contentScore += 5;
+    if (results.contentAnalysis?.enhancedKeywords?.keywords?.mixed?.length > 5) contentScore += 5;
     if (results.contentAnalysis?.headingCounts?.total > 3) contentScore += 3;
     if (results.linkAnalysis?.internal > 0) contentScore += 3;
     if (results.contentAnalysis?.readability?.score > 70) contentScore += 4;
