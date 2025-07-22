@@ -1,111 +1,185 @@
-const { exec } = require('child_process');
-const path = require('path');
+const express = require('express');
+const router = express.Router();
+const { 
+    analyzeWithKnowledgeGraph, 
+    extractKeywordsFromSeoResults, 
+    extractKeywordsFromText 
+} = require('./knowledgeService');
+const { performSeoAudit } = require('../seo/seoService');
 
 /**
- * Analyze content using Google Knowledge Graph and Wikidata
+ * POST /api/knowledge/analyze
+ * Comprehensive Knowledge Graph analysis
  */
-async function analyzeWithKnowledgeGraph(data) {
-    const { keywords, language = 'en', includeWikidata = true } = data;
-    
-    console.log(`🧠 Starting Knowledge Graph analysis for keywords: ${keywords?.join(', ')}`);
-    
-    return new Promise((resolve, reject) => {
-        const pythonScript = path.join(__dirname, '../../scripts/knowledge_graph.py');
-        const inputData = JSON.stringify({ keywords, language, includeWikidata });
+router.post('/analyze', async (req, res) => {
+    try {
+        const { url, text, keywords, options = {} } = req.body;
+        const startTime = Date.now();
         
-        // Make sure the input data is properly escaped
-        const escapedInput = inputData.replace(/'/g, "'\"'\"'");
+        let analysisKeywords = keywords || [];
+        let sourceType = 'provided_keywords';
+        let seoResults = null;
         
-        exec(`python3 "${pythonScript}" '${escapedInput}'`, {
-            timeout: 30000, // 30 second timeout
-            maxBuffer: 1024 * 1024 // 1MB buffer
-        }, (error, stdout, stderr) => {
-            if (error) {
-                console.error('Python script execution error:', error);
-                reject(new Error(`Knowledge Graph analysis failed: ${error.message}`));
-                return;
-            }
-            
-            if (stderr) {
-                console.warn('Python script warning:', stderr);
-            }
+        // אם יש URL ואין keywords - חלץ מSEO analysis
+        if (url && !analysisKeywords.length) {
+            console.log(`🔍 Extracting keywords from URL: ${url}`);
+            sourceType = 'url_seo_analysis';
             
             try {
-                const result = JSON.parse(stdout);
-                console.log(`✅ Knowledge Graph analysis completed. Found ${result.entities?.length || 0} entities`);
-                resolve(result);
-            } catch (parseError) {
-                console.error('Failed to parse Python output:', stdout);
-                console.error('Parse error:', parseError);
-                reject(new Error(`Failed to parse Knowledge Graph results: ${parseError.message}`));
+                seoResults = await performSeoAudit(url, { includeScreenshot: false });
+                analysisKeywords = extractKeywordsFromSeoResults(seoResults);
+                console.log(`📊 Extracted ${analysisKeywords.length} keywords from SEO analysis`);
+            } catch (seoError) {
+                console.error('SEO analysis failed:', seoError);
+                return res.status(500).json({
+                    success: false,
+                    error: `Failed to analyze URL: ${seoError.message}`,
+                    url
+                });
             }
+        }
+        
+        // אם יש טקסט ישירות - חלץ keywords פשוט
+        if (text && !analysisKeywords.length) {
+            console.log(`📝 Extracting keywords from text (${text.length} chars)`);
+            sourceType = 'text_analysis';
+            analysisKeywords = extractKeywordsFromText(text);
+        }
+        
+        if (!analysisKeywords.length) {
+            return res.status(400).json({
+                success: false,
+                error: 'No keywords found or provided for analysis',
+                details: 'Please provide either keywords directly, a URL to analyze, or text content'
+            });
+        }
+        
+        console.log(`🎯 Analyzing keywords: [${analysisKeywords.join(', ')}]`);
+        
+        // ריץ Knowledge Graph analysis
+        try {
+            const knowledgeGraphResult = await analyzeWithKnowledgeGraph({
+                keywords: analysisKeywords,
+                language: options.language || 'en',
+                includeWikidata: options.includeWikidata !== false
+            });
+            
+            const executionTime = Date.now() - startTime;
+            
+            const response = {
+                success: true,
+                source: {
+                    type: sourceType,
+                    url: url || null,
+                    textPreview: text ? text.substring(0, 100) + '...' : null,
+                    providedKeywords: keywords || null
+                },
+                analysis: {
+                    extractedKeywords: analysisKeywords,
+                    keywordCount: analysisKeywords.length,
+                    language: options.language || 'en',
+                    includeWikidata: options.includeWikidata !== false
+                },
+                knowledgeGraph: knowledgeGraphResult,
+                metadata: {
+                    executionTime,
+                    timestamp: new Date().toISOString(),
+                    version: '1.0.0'
+                }
+            };
+            
+            // אם יש SEO results, הוסף גם אותם
+            if (seoResults && options.includeSeoData) {
+                response.seoAnalysis = {
+                    score: seoResults.seoScore?.total || 0,
+                    enhancedKeywords: seoResults.contentAnalysis?.enhancedKeywords || null
+                };
+            }
+            
+            console.log(`✅ Knowledge Graph analysis completed in ${executionTime}ms`);
+            res.json(response);
+            
+        } catch (kgError) {
+            console.error('Knowledge Graph analysis failed:', kgError);
+            res.status(500).json({
+                success: false,
+                error: `Knowledge Graph analysis failed: ${kgError.message}`,
+                analysis: {
+                    extractedKeywords: analysisKeywords,
+                    keywordCount: analysisKeywords.length
+                }
+            });
+        }
+        
+    } catch (error) {
+        console.error('Knowledge Graph endpoint error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
         });
-    });
-}
+    }
+});
 
 /**
- * Extract keywords from SEO analysis results
+ * POST /api/knowledge/quick
+ * Quick keyword-only analysis
  */
-function extractKeywordsFromSeoResults(seoResults) {
-    const keywords = [];
-    
-    // Extract from enhanced keywords
-    if (seoResults.contentAnalysis?.enhancedKeywords?.keywords?.mixed) {
-        const mixedKeywords = seoResults.contentAnalysis.enhancedKeywords.keywords.mixed
-            .slice(0, 5)
-            .map(kw => kw.word);
-        keywords.push(...mixedKeywords);
+router.post('/quick', async (req, res) => {
+    try {
+        const { keywords, language = 'en' } = req.body;
+        
+        if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Keywords array is required'
+            });
+        }
+        
+        const knowledgeGraphResult = await analyzeWithKnowledgeGraph({
+            keywords,
+            language,
+            includeWikidata: false // Quick mode - no Wikidata
+        });
+        
+        res.json({
+            success: true,
+            keywords,
+            language,
+            knowledgeGraph: knowledgeGraphResult,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('Quick Knowledge Graph analysis failed:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
-    
-    // Extract from Hebrew keywords if available
-    if (seoResults.contentAnalysis?.enhancedKeywords?.keywords?.hebrew) {
-        const hebrewKeywords = seoResults.contentAnalysis.enhancedKeywords.keywords.hebrew
-            .slice(0, 3)
-            .map(kw => kw.word);
-        keywords.push(...hebrewKeywords);
-    }
-    
-    // Extract from English keywords if available
-    if (seoResults.contentAnalysis?.enhancedKeywords?.keywords?.english) {
-        const englishKeywords = seoResults.contentAnalysis.enhancedKeywords.keywords.english
-            .slice(0, 3)
-            .map(kw => kw.word);
-        keywords.push(...englishKeywords);
-    }
-    
-    // Remove duplicates and return
-    return [...new Set(keywords)].slice(0, 8);
-}
+});
 
 /**
- * Simple keyword extractor from raw text
+ * GET /api/knowledge/health
+ * Health check for Knowledge Graph service
  */
-function extractKeywordsFromText(text, maxKeywords = 5) {
-    const stopWords = new Set([
-        'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-        'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had',
-        'do', 'does', 'did', 'will', 'would', 'should', 'could', 'can', 'may',
-        'של', 'את', 'עם', 'על', 'אל', 'כל', 'לא', 'אם', 'כי', 'זה', 'היא', 'הוא'
-    ]);
+router.get('/health', (req, res) => {
+    const hasApiKey = !!process.env.GOOGLE_API_KEY;
     
-    const words = text.toLowerCase()
-        .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
-        .split(/\s+/)
-        .filter(word => word.length > 3 && !stopWords.has(word));
-    
-    const frequency = {};
-    words.forEach(word => {
-        frequency[word] = (frequency[word] || 0) + 1;
+    res.json({
+        service: 'Knowledge Graph',
+        status: 'healthy',
+        features: {
+            googleKnowledgeGraph: hasApiKey,
+            wikidata: true,
+            advertools: true
+        },
+        environment: {
+            hasGoogleApiKey: hasApiKey,
+            pythonAvailable: true
+        },
+        timestamp: new Date().toISOString()
     });
-    
-    return Object.entries(frequency)
-        .sort(([,a], [,b]) => b - a)
-        .slice(0, maxKeywords)
-        .map(([word]) => word);
-}
+});
 
-module.exports = {
-    analyzeWithKnowledgeGraph,
-    extractKeywordsFromSeoResults,
-    extractKeywordsFromText
-};
+module.exports = router;
