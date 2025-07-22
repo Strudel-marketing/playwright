@@ -4,8 +4,12 @@ FROM mcr.microsoft.com/playwright:v1.40.0-jammy
 # Set working directory
 WORKDIR /app
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+# Install curl for healthcheck + Python for Knowledge Graph
+RUN apt-get update && apt-get install -y curl python3 python3-pip && rm -rf /var/lib/apt/lists/*
+
+# Copy Python requirements and install
+COPY requirements.txt ./
+RUN pip3 install -r requirements.txt
 
 # Copy package files first for better caching
 COPY package*.json ./
@@ -36,10 +40,14 @@ COPY index.js ./
 COPY services/ ./services/
 COPY utils/ ./utils/
 COPY helpers/ ./helpers/
+COPY scripts/ ./scripts/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p downloads tmp logs screenshots && \
     chmod 777 downloads tmp logs screenshots
+
+# Make Python scripts executable
+RUN chmod +x scripts/*.py 2>/dev/null || true
 
 # Add healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
