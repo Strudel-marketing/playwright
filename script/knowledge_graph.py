@@ -22,6 +22,8 @@ def enhanced_knowledge_graph(data):
         if keywords:
             # השתמש ב-API key מהסביבה או default
             google_api_key = os.getenv('GOOGLE_API_KEY')
+            if not google_api_key:
+                raise ValueError('GOOGLE_API_KEY environment variable is required')
             kg_data = adv.knowledge_graph(keywords, key=google_api_key)
             
             for entity in kg_data.get('itemListElement', []):
