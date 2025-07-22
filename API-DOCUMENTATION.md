@@ -10,13 +10,28 @@
 **שדות חובה:** `url` (string)
 **שדות אופציונליים:** `includeScreenshot` (boolean), `options` (object)
 
-**דוגמת curl:**
+**אפשרויות זמינות ב-options:**
+- `waitTime` (number) - זמן המתנה לטעינת העמוד
+- `userAgent` (string) - User agent מותאם אישית
+- `viewport` (object) - גודל מסך: `{width: number, height: number}`
+- `timeout` (number) - זמן timeout למשימה
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/seo/audit \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
-    "includeScreenshot": true
+    "includeScreenshot": true,
+    "options": {
+      "waitTime": 3000,
+      "userAgent": "Mozilla/5.0 (compatible; SEO-Bot/1.0)",
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      },
+      "timeout": 60000
+    }
   }'
 ```
 
@@ -60,11 +75,27 @@ curl -X POST https://play.strudel.marketing/api/seo/audit \
 **שדות חובה:** `url` (string)
 **שדות אופציונליים:** `options` (object)
 
-**דוגמת curl:**
+**אפשרויות זמינות ב-options:**
+- `includeOpenGraph` (boolean) - כלול OpenGraph
+- `includeTwitterCard` (boolean) - כלול Twitter Card
+- `includeMicrodata` (boolean) - כלול Microdata
+- `includeRDFa` (boolean) - כלול RDFa
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/extract/extract \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example-store.com/product/123"}'
+  -d '{
+    "url": "https://example-store.com/product/123",
+    "options": {
+      "includeOpenGraph": true,
+      "includeTwitterCard": true,
+      "includeMicrodata": true,
+      "includeRDFa": true,
+      "timeout": 30000
+    }
+  }'
 ```
 
 **דוגמת תשובה:**
@@ -88,9 +119,26 @@ curl -X POST https://play.strudel.marketing/api/extract/extract \
     "openGraph": {
       "og:title": "iPhone 15 Pro",
       "og:image": "https://example-store.com/images/iphone15pro.jpg"
-    }
+    },
+    "twitterCard": {
+      "twitter:card": "summary_large_image",
+      "twitter:title": "iPhone 15 Pro"
+    },
+    "microdata": [],
+    "rdfa": []
   }
 }
+```
+
+### POST /api/extract/quick-check - בדיקה מהירה
+
+**שדות חובה:** `url` (string)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/extract/quick-check \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
 ```
 
 ---
@@ -101,11 +149,26 @@ curl -X POST https://play.strudel.marketing/api/extract/extract \
 
 **מטרה:** זיהוי וניתוח כל הטפסים בעמוד
 
-**דוגמת curl:**
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `waitTime` (number) - זמן המתנה לטעינת העמוד
+- `includeHidden` (boolean) - כלול שדות נסתרים
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם אפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/automation/analyze-forms \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com/contact"}'
+  -d '{
+    "url": "https://example.com/contact",
+    "options": {
+      "waitTime": 2000,
+      "includeHidden": false,
+      "timeout": 30000
+    }
+  }'
 ```
 
 **דוגמת תשובה:**
@@ -185,7 +248,17 @@ curl -X POST https://play.strudel.marketing/api/automation/analyze-forms \
 
 **מטרה:** שימוש במידע מהשלב הראשון למילוי ושליחת הטופס
 
-**דוגמת curl (בהתבסס על הניתוח):**
+**שדות חובה:** `url` (string), `formData` (object)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `submitForm` (boolean, default: true) - האם לשלוח את הטופס
+- `waitAfterSubmit` (number, default: 3000) - זמן המתנה לאחר שליחה
+- `formSelector` (string) - בורר ספציפי לטופס
+- `screenshot` (boolean) - צילום מסך לאחר מילוי
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/automation/form \
   -H "Content-Type: application/json" \
@@ -198,7 +271,10 @@ curl -X POST https://play.strudel.marketing/api/automation/form \
     },
     "options": {
       "submitForm": true,
-      "waitAfterSubmit": 5000
+      "waitAfterSubmit": 5000,
+      "formSelector": "#contact-form",
+      "screenshot": true,
+      "timeout": 60000
     }
   }'
 ```
@@ -230,21 +306,106 @@ curl -X POST https://play.strudel.marketing/api/automation/form \
 }
 ```
 
+### POST /api/automation/execute - ביצוע רצף פעולות
+
+**שדות חובה:** `url` (string), `actions` (array)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `waitTime` (number) - זמן המתנה בין פעולות
+- `screenshot` (boolean) - צילום מסך לאחר כל פעולה
+- `timeout` (number) - זמן timeout כללי
+- `viewport` (object) - גודל מסך
+
+**פעולות זמינות:**
+- `click` - לחיצה על אלמנט
+- `type` - הקלדת טקסט
+- `scroll` - גלילה
+- `wait` - המתנה
+- `screenshot` - צילום מסך
+- `select` - בחירה מרשימה נפתחת
+
+**דוגמת curl עם אפשרויות מלאות:**
+```bash
+curl -X POST https://play.strudel.marketing/api/automation/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/login",
+    "actions": [
+      {
+        "type": "type",
+        "selector": "#username",
+        "text": "user@example.com"
+      },
+      {
+        "type": "type",
+        "selector": "#password",
+        "text": "mypassword123"
+      },
+      {
+        "type": "click",
+        "selector": "#login-button"
+      },
+      {
+        "type": "wait",
+        "duration": 2000
+      },
+      {
+        "type": "screenshot",
+        "filename": "after-login"
+      }
+    ],
+    "options": {
+      "waitTime": 1000,
+      "screenshot": true,
+      "timeout": 30000,
+      "viewport": {
+        "width": 1920,
+        "height": 1080
+      }
+    }
+  }'
+```
+
 ---
 
 ## 📸 Screenshots - `/api/screenshot`
 
 ### POST /api/screenshot/capture - צילום יחיד
 
-**דוגמת curl:**
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `width` (number, default: 1920) - רוחב המסך
+- `height` (number, default: 1080) - גובה המסך
+- `fullPage` (boolean, default: false) - צילום עמוד מלא
+- `quality` (number, 1-100, default: 80) - איכות התמונה
+- `format` (string, default: 'png') - פורמט התמונה (png/jpeg/webp)
+- `clip` (object) - חיתוך אזור ספציפי: `{x, y, width, height}`
+- `omitBackground` (boolean) - השמטת רקע (לשקיפות)
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
     "options": {
+      "width": 1920,
+      "height": 1080,
       "fullPage": true,
-      "quality": 90
+      "quality": 90,
+      "format": "png",
+      "clip": {
+        "x": 0,
+        "y": 0,
+        "width": 1920,
+        "height": 1080
+      },
+      "omitBackground": false,
+      "timeout": 30000
     }
   }'
 ```
@@ -262,11 +423,59 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
 }
 ```
 
+### POST /api/screenshot/multiple - צילומים מרובים
+
+**שדות חובה:** `urls` (array)
+**שדות אופציונליים:** `options` (object) - זהות לצילום יחיד
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/screenshot/multiple \
+  -H "Content-Type: application/json" \
+  -d '{
+    "urls": [
+      "https://example1.com",
+      "https://example2.com",
+      "https://example3.com"
+    ],
+    "options": {
+      "fullPage": true,
+      "quality": 85,
+      "format": "png"
+    }
+  }'
+```
+
+### POST /api/screenshot/responsive - צילומים רספונסיביים
+
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `viewports` (array), `options` (object)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/screenshot/responsive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "viewports": [
+      {"width": 1920, "height": 1080, "name": "desktop"},
+      {"width": 768, "height": 1024, "name": "tablet"},
+      {"width": 375, "height": 667, "name": "mobile"}
+    ],
+    "options": {
+      "fullPage": true,
+      "quality": 90
+    }
+  }'
+```
+
 ---
 
 ## ❓ People Also Ask - `/api/paa`
 
 ### POST /api/paa - שאלות PAA מגוגל
+
+**שדות חובה:** `query` (string)
 
 **דוגמת curl:**
 ```bash
@@ -275,30 +484,144 @@ curl -X POST https://play.strudel.marketing/api/paa \
   -d '{"query": "עיצוב פנים לסלון קטן"}'
 ```
 
-**דוגמת תשובה:**
-```json
-{
-  "success": true,
-  "query": "עיצוב פנים לסלון קטן",
-  "questions": [
-    {
-      "question": "איך לעצב סלון קטן כך שייראה גדול יותר?",
-      "answer": "כדי לגרום לסלון קטן להיראות גדול יותר, מומלץ להשתמש בצבעים בהירים...",
-      "source": "https://example-design.com/small-living-room-tips"
-    }
-  ],
-  "totalQuestions": 4,
-  "language": "he"
-}
+### POST /api/paa/bing - שאלות PAA מבינג
+
+**שדות חובה:** `query` (string)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/paa/bing \
+  -H "Content-Type: application/json" \
+  -d '{"query": "interior design small living room"}'
+```
+
+### POST /api/paa/debug - PAA גוגל עם debug
+
+**שדות חובה:** `query` (string)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/paa/debug \
+  -H "Content-Type: application/json" \
+  -d '{"query": "עיצוב פנים לסלון קטן"}'
+```
+
+### POST /api/paa/bing/debug - PAA בינג עם debug
+
+**שדות חובה:** `query` (string)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/paa/bing/debug \
+  -H "Content-Type: application/json" \
+  -d '{"query": "interior design small living room"}'
+```
+
+### GET /api/paa/status - סטטוס שירות PAA
+
+**דוגמת curl:**
+```bash
+curl https://play.strudel.marketing/api/paa/status
 ```
 
 ---
 
 ## ⚖️ Comparison - `/api/compare`
 
-### POST /api/compare/advanced - השוואה מתקדמת
+### POST /api/compare/visual - השוואה ויזואלית
+
+**שדות חובה:** `url1` (string), `url2` (string)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `threshold` (number, 0-1, default: 0.1) - רגישות להבדלים
+- `fullPage` (boolean) - השוואת עמוד מלא
+- `ignoreAntialiasing` (boolean) - התעלמות מ-antialiasing
+- `ignoreColors` (boolean) - התעלמות מצבעים
+
+**דוגמת curl עם כל האפשרויות:**
+```bash
+curl -X POST https://play.strudel.marketing/api/compare/visual \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url1": "https://example1.com",
+    "url2": "https://example2.com",
+    "options": {
+      "threshold": 0.1,
+      "fullPage": true,
+      "ignoreAntialiasing": true,
+      "ignoreColors": false
+    }
+  }'
+```
+
+### POST /api/compare/content - השוואת תוכן
+
+**שדות חובה:** `url1` (string), `url2` (string)
+**שדות אופציונליים:** `options` (object)
 
 **דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/compare/content \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url1": "https://example1.com",
+    "url2": "https://example2.com",
+    "options": {
+      "includeMetaTags": true,
+      "includeHeadings": true,
+      "includeImages": true
+    }
+  }'
+```
+
+### POST /api/compare/structure - השוואת מבנה
+
+**שדות חובה:** `url1` (string), `url2` (string)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/compare/structure \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url1": "https://example1.com",
+    "url2": "https://example2.com"
+  }'
+```
+
+### POST /api/compare/full - השוואה מלאה
+
+**שדות חובה:** `url1` (string), `url2` (string)
+**שדות אופציונליים:** `options` (object)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/compare/full \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url1": "https://example1.com",
+    "url2": "https://example2.com",
+    "options": {
+      "includeVisual": true,
+      "includeContent": true,
+      "includeStructure": true
+    }
+  }'
+```
+
+### POST /api/compare/advanced - השוואה מתקדמת (מתחרים)
+
+**שדות חובה:** `mainUrl` (string), `competitorUrls` (array, עד 5)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `includeVisual` (boolean) - כלול השוואה ויזואלית
+- `includeContent` (boolean) - כלול השוואת תוכן
+- `includeSchema` (boolean) - כלול השוואת סכמות
+- `includeSeo` (boolean) - כלול השוואת SEO
+- `includePerformance` (boolean) - כלול השוואת ביצועים
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/compare/advanced \
   -H "Content-Type: application/json" \
@@ -310,47 +633,80 @@ curl -X POST https://play.strudel.marketing/api/compare/advanced \
     ],
     "options": {
       "includeVisual": true,
-      "includeSeo": true
+      "includeContent": true,
+      "includeSchema": true,
+      "includeSeo": true,
+      "includePerformance": true
     }
   }'
-```
-
-**דוגמת תשובה:**
-```json
-{
-  "success": true,
-  "comparison": {
-    "overallRanking": {
-      "seoScore": 2,
-      "contentQuality": 1,
-      "visualAppeal": 1
-    },
-    "recommendations": [
-      "Add LocalBusiness schema markup",
-      "Improve internal linking structure"
-    ],
-    "strengths": [
-      "Better visual design than competitors",
-      "Higher content quality score"
-    ]
-  }
-}
 ```
 
 ---
 
 ## 🚀 Performance - `/api/performance`
 
-### POST /api/performance/lighthouse - ניתוח Lighthouse
+### POST /api/performance/lighthouse - ניתוח Lighthouse בסיסי
 
-**דוגמת curl:**
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `categories` (array) - קטגוריות לבדיקה: ['performance', 'accessibility', 'best-practices', 'seo', 'pwa']
+- `device` (string) - 'desktop' או 'mobile'
+- `throttling` (boolean) - הגבלת רשת
+- `onlyCategories` (array) - רק קטגוריות ספציפיות
+- `skipAudits` (array) - דילוג על בדיקות ספציפיות
+- `locale` (string) - שפה לדוח
+
+**דוגמת curl עם כל האפשרויות:**
 ```bash
 curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
     "options": {
-      "device": "mobile"
+      "categories": ["performance", "accessibility", "seo"],
+      "device": "mobile",
+      "throttling": true,
+      "locale": "he",
+      "skipAudits": ["unused-css-rules"]
+    }
+  }'
+```
+
+### POST /api/performance/lighthouse/full - ניתוח Lighthouse מלא
+
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object) - זהות לבסיסי
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/performance/lighthouse/full \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "options": {
+      "device": "desktop",
+      "throttling": false,
+      "locale": "he"
+    }
+  }'
+```
+
+### POST /api/performance/lighthouse/performance - ניתוח ביצועים בלבד
+
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
+
+**דוגמת curl:**
+```bash
+curl -X POST https://play.strudel.marketing/api/performance/lighthouse/performance \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "options": {
+      "device": "mobile",
+      "throttling": true
     }
   }'
 ```
@@ -364,8 +720,16 @@ curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
       "score": 0.72,
       "metrics": {
         "firstContentfulPaint": 2100,
-        "largestContentfulPaint": 4200
-      }
+        "largestContentfulPaint": 4200,
+        "speedIndex": 3100,
+        "timeToInteractive": 5800,
+        "totalBlockingTime": 280,
+        "cumulativeLayoutShift": 0.12
+      },
+      "opportunities": [
+        "Optimize images (potential savings: 1.2s)",
+        "Remove unused JavaScript (potential savings: 0.8s)"
+      ]
     },
     "accessibility": {
       "score": 0.89,
@@ -377,6 +741,13 @@ curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
     }
   }
 }
+```
+
+### GET /api/performance/health - בדיקת בריאות שירות
+
+**דוגמת curl:**
+```bash
+curl https://play.strudel.marketing/api/performance/health
 ```
 
 ---
