@@ -23,6 +23,7 @@ const knowledgeRoutes = require('./services/knowledge/knowledgeRoutes');
 // Import utilities
 const browserPool = require('./utils/browserPool');
 const { runLighthouse } = require('./utils/lighthouse');
+const { authMiddleware } = require('./middleware/auth');
 
 // Initialize Express app
 const app = express();
@@ -50,6 +51,8 @@ app.get('/health', (req, res) => {
 app.get('/status', (req, res) => {
     res.json({ status: 'healthy' });
 });
+
+app.use('/api', authMiddleware);
 
 // Connect service routes
 app.use('/api/seo', seoRoutes);
