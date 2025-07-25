@@ -70,6 +70,8 @@ app.listen(PORT, () => {
     console.log(`🤖 Automation: http://localhost:${PORT}/api/automation`);
     console.log(`⚖️ Comparison: http://localhost:${PORT}/api/compare`);
     console.log(`❓ PAA: http://localhost:${PORT}/api/paa`);
+    console.log(`🏥 Performance: http://localhost:${PORT}/api/performance`);
+    console.log(`🧠 Knowledge Graph: http://localhost:${PORT}/api/knowledge`);
     console.log(`💚 Health Check: http://localhost:${PORT}/health`);
 });
 
