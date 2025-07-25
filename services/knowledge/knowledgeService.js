@@ -18,13 +18,13 @@ async function analyzeWithKnowledgeGraph(options) {
         });
         
         // קריאה לPython script
-        exec(`python3 ${pythonScript}`, {
-            env: { 
-                ...process.env,
-                KNOWLEDGE_INPUT: inputData
-            },
-            timeout: 30000 // 30 שניות timeout
-        }, (error, stdout, stderr) => {
+            exec(`python3 ${pythonScript} '${inputData}'`, {
+                env: { 
+                    ...process.env,
+                    GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || ''
+                },
+                timeout: 30000
+            }, (error, stdout, stderr) => {
             if (error) {
                 console.error('Knowledge Graph analysis failed:', error);
                 reject(new Error(`Knowledge Graph analysis failed: ${error.message}`));
