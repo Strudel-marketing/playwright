@@ -24,7 +24,6 @@ async function performSeoAudit(url, options = {}) {
         const navigationStart = Date.now();
         const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
         const statusCode = response ? response.status() : null;
-        const statusText = response ? response.statusText() : null;
         const navigationEnd = Date.now();
         await page.waitForTimeout(2000);
         
@@ -48,9 +47,7 @@ async function performSeoAudit(url, options = {}) {
         // === מבנה תשובה משופר ===
         const results = {
             success: true,
-            url,
             statusCode,
-            statusText,
             timestamp: new Date().toISOString(),
             executionTime,
             loadTime,
