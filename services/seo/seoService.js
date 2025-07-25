@@ -22,7 +22,9 @@ async function performSeoAudit(url, options = {}) {
     
     try {
         const navigationStart = Date.now();
-        await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        const statusCode = response ? response.status() : null;
+        const statusText = response ? response.statusText() : null;
         const navigationEnd = Date.now();
         await page.waitForTimeout(2000);
         
@@ -47,6 +49,8 @@ async function performSeoAudit(url, options = {}) {
         const results = {
             success: true,
             url,
+            statusCode,
+            statusText,
             timestamp: new Date().toISOString(),
             executionTime,
             loadTime,
@@ -65,7 +69,7 @@ async function performSeoAudit(url, options = {}) {
             }
         };
         
-        console.log(`✅ SEO audit completed for ${url} - Score: ${seoScore.total}/100`);
+        console.log(`✅ SEO audit completed - Status: ${statusCode} - Score: ${seoScore.total}/100`);
         return results;
         
     } catch (error) {
