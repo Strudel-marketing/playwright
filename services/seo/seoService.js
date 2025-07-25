@@ -380,8 +380,150 @@ async function analyzeContentAndMedia(page) {
             return [...hebrew, ...english];
         }
         
-        // === ניתוח לינקים ===
-        function analyzeLinks() {
+        // === ניתוח לינקים משופר - רק מתוכן עיקרי ===
+        function analyzeContentLinks() {
+            const currentDomain = window.location.hostname;
+            
+            // מציאת האזור עם התוכן העיקרי
+            const contentArea = findMainContentArea();
+            
+            if (!contentArea) {
+                console.warn('לא נמצא אזור תוכן עיקרי, חוזר לניתוח רגיל');
+                return analyzeAllLinks(); // fallback לפונקציה הקיימת
+            }
+            
+            // קישורים רק מתוכן העיקרי
+            const contentLinks = Array.from(contentArea.querySelectorAll('a[href]'));
+            
+            let internal = 0, external = 0;
+            const linkDetails = [];
+            
+            contentLinks.forEach(link => {
+                try {
+                    const linkUrl = new URL(link.href, window.location.href);
+                    const linkText = link.textContent.trim();
+                    const linkTitle = link.title || '';
+                    
+                    const linkInfo = {
+                        url: link.href,
+                        text: linkText,
+                        title: linkTitle,
+                        hasText: linkText.length > 0,
+                        isInternal: linkUrl.hostname === currentDomain
+                    };
+                    
+                    if (linkUrl.hostname === currentDomain) {
+                        internal++;
+                        linkInfo.type = 'internal';
+                    } else {
+                        external++;
+                        linkInfo.type = 'external';
+                    }
+                    
+                    linkDetails.push(linkInfo);
+                } catch (error) {
+                    console.warn('בעיה בניתוח קישור:', link.href);
+                }
+            });
+            
+            return {
+                total: contentLinks.length,
+                internal,
+                external,
+                contentOnly: true, // סימון שזה ניתוח של תוכן בלבד
+                linksWithoutText: linkDetails.filter(link => !link.hasText).length,
+                details: linkDetails.slice(0, 10) // רק 10 הראשונים למניעת עומס
+            };
+        }
+        
+        function findMainContentArea() {
+            // רשימת סלקטורים לתוכן עיקרי (לפי סדר עדיפות)
+            const contentSelectors = [
+                'main',
+                '[role="main"]',
+                'article',
+                '.main-content',
+                '.content',
+                '.post-content',
+                '.entry-content',
+                '.article-content',
+                '#content',
+                '#main-content',
+                '.page-content',
+                '.blog-content'
+            ];
+            
+            // חיפוש הסלקטור הראשון שקיים
+            for (const selector of contentSelectors) {
+                const element = document.querySelector(selector);
+                if (element) {
+                    console.log(`נמצא תוכן עיקרי עם: ${selector}`);
+                    return element;
+                }
+            }
+            
+            // אם לא נמצא, נסה למצוא לפי היוריסטיקה
+            return findContentByHeuristics();
+        }
+        
+        function findContentByHeuristics() {
+            // חיפוש האלמנט עם הכי הרבה פסקאות וכותרות
+            const candidates = Array.from(document.querySelectorAll('div, section, article'));
+            
+            let bestCandidate = null;
+            let bestScore = 0;
+            
+            candidates.forEach(element => {
+                // דלג על header, footer, nav, sidebar
+                if (isNavigationArea(element)) return;
+                
+                const paragraphs = element.querySelectorAll('p').length;
+                const headings = element.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
+                const textLength = element.textContent.length;
+                
+                // חישוב ציון על בסיס כמות תוכן
+                const score = (paragraphs * 2) + headings + (textLength / 100);
+                
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestCandidate = element;
+                }
+            });
+            
+            if (bestCandidate) {
+                console.log(`נמצא תוכן עיקרי בהיוריסטיקה עם ציון: ${bestScore}`);
+            }
+            
+            return bestCandidate;
+        }
+        
+        function isNavigationArea(element) {
+            // בדיקה אם האלמנט הוא אזור ניווט
+            const navigationSelectors = [
+                'header', 'footer', 'nav', 'aside',
+                '.header', '.footer', '.navigation', '.nav',
+                '.sidebar', '.menu', '.widget', '.advertisement',
+                '#header', '#footer', '#sidebar', '#nav'
+            ];
+            
+            // בדיקה ישירה
+            const tagName = element.tagName.toLowerCase();
+            if (['header', 'footer', 'nav', 'aside'].includes(tagName)) {
+                return true;
+            }
+            
+            // בדיקה לפי קלאס ואיידי
+            const className = element.className || '';
+            const id = element.id || '';
+            
+            return navigationSelectors.some(selector => {
+                const cleanSelector = selector.replace(/^[#.]/, '');
+                return className.includes(cleanSelector) || id.includes(cleanSelector);
+            });
+        }
+        
+        // פונקציה מקורית כ-fallback
+        function analyzeAllLinks() {
             const links = Array.from(document.querySelectorAll('a[href]'));
             const currentDomain = window.location.hostname;
             
@@ -400,17 +542,23 @@ async function analyzeContentAndMedia(page) {
             return {
                 total: links.length,
                 internal,
-                external
+                external,
+                contentOnly: false
             };
         }
         
+        // === השימוש החדש בפונקציה הראשית ===
+        function analyzeLinks() {
+            return analyzeContentLinks();
+        }
+        
         // === הרצת הניתוחים ===
-        return {
-            content: analyzeContent(),
-            links: analyzeLinks()
-        };
-    });
-}
+            return {
+                content: analyzeContent(),
+                links: analyzeLinks()
+            };
+        });
+    }
 
 // === חישוב ציון SEO משופר ===
 function calculateSeoScore(results) {
