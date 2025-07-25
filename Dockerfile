@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y curl python3 python3-pip && rm -rf /var
 
 # Copy Python requirements and install
 COPY requirements.txt ./
+RUN pip3 install --upgrade pip setuptools wheel
 RUN pip3 install -r requirements.txt
 
 # Copy package files first for better caching
