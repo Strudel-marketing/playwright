@@ -1,185 +1,154 @@
-const express = require('express');
-const router = express.Router();
-const { 
-    analyzeWithKnowledgeGraph, 
-    extractKeywordsFromSeoResults, 
-    extractKeywordsFromText 
-} = require('./knowledgeService');
-const { performSeoAudit } = require('../seo/seoService');
+const { exec } = require('child_process');
+const path = require('path');
 
 /**
- * POST /api/knowledge/analyze
- * Comprehensive Knowledge Graph analysis
+ * ניתוח Knowledge Graph עם Python script
  */
-router.post('/analyze', async (req, res) => {
-    try {
-        const { url, text, keywords, options = {} } = req.body;
-        const startTime = Date.now();
+async function analyzeWithKnowledgeGraph(options) {
+    return new Promise((resolve, reject) => {
+        const { keywords, language = 'en', includeWikidata = true } = options;
         
-        let analysisKeywords = keywords || [];
-        let sourceType = 'provided_keywords';
-        let seoResults = null;
+        console.log(`🧠 Running Knowledge Graph analysis for: [${keywords.join(', ')}]`);
         
-        // אם יש URL ואין keywords - חלץ מSEO analysis
-        if (url && !analysisKeywords.length) {
-            console.log(`🔍 Extracting keywords from URL: ${url}`);
-            sourceType = 'url_seo_analysis';
+        const pythonScript = path.join(__dirname, '../../scripts/knowledge_graph.py');
+        const inputData = JSON.stringify({
+            keywords,
+            language,
+            includeWikidata
+        });
+        
+        // קריאה לPython script
+        exec(`python3 ${pythonScript}`, {
+            env: { 
+                ...process.env,
+                KNOWLEDGE_INPUT: inputData
+            },
+            timeout: 30000 // 30 שניות timeout
+        }, (error, stdout, stderr) => {
+            if (error) {
+                console.error('Knowledge Graph analysis failed:', error);
+                reject(new Error(`Knowledge Graph analysis failed: ${error.message}`));
+                return;
+            }
+            
+            if (stderr) {
+                console.warn('Knowledge Graph warnings:', stderr);
+            }
             
             try {
-                seoResults = await performSeoAudit(url, { includeScreenshot: false });
-                analysisKeywords = extractKeywordsFromSeoResults(seoResults);
-                console.log(`📊 Extracted ${analysisKeywords.length} keywords from SEO analysis`);
-            } catch (seoError) {
-                console.error('SEO analysis failed:', seoError);
-                return res.status(500).json({
-                    success: false,
-                    error: `Failed to analyze URL: ${seoError.message}`,
-                    url
-                });
+                const result = JSON.parse(stdout);
+                console.log(`✅ Knowledge Graph analysis completed for ${keywords.length} keywords`);
+                resolve(result);
+            } catch (parseError) {
+                console.error('Failed to parse Knowledge Graph results:', parseError);
+                reject(new Error('Failed to parse Knowledge Graph results'));
             }
-        }
-        
-        // אם יש טקסט ישירות - חלץ keywords פשוט
-        if (text && !analysisKeywords.length) {
-            console.log(`📝 Extracting keywords from text (${text.length} chars)`);
-            sourceType = 'text_analysis';
-            analysisKeywords = extractKeywordsFromText(text);
-        }
-        
-        if (!analysisKeywords.length) {
-            return res.status(400).json({
-                success: false,
-                error: 'No keywords found or provided for analysis',
-                details: 'Please provide either keywords directly, a URL to analyze, or text content'
-            });
-        }
-        
-        console.log(`🎯 Analyzing keywords: [${analysisKeywords.join(', ')}]`);
-        
-        // ריץ Knowledge Graph analysis
-        try {
-            const knowledgeGraphResult = await analyzeWithKnowledgeGraph({
-                keywords: analysisKeywords,
-                language: options.language || 'en',
-                includeWikidata: options.includeWikidata !== false
-            });
-            
-            const executionTime = Date.now() - startTime;
-            
-            const response = {
-                success: true,
-                source: {
-                    type: sourceType,
-                    url: url || null,
-                    textPreview: text ? text.substring(0, 100) + '...' : null,
-                    providedKeywords: keywords || null
-                },
-                analysis: {
-                    extractedKeywords: analysisKeywords,
-                    keywordCount: analysisKeywords.length,
-                    language: options.language || 'en',
-                    includeWikidata: options.includeWikidata !== false
-                },
-                knowledgeGraph: knowledgeGraphResult,
-                metadata: {
-                    executionTime,
-                    timestamp: new Date().toISOString(),
-                    version: '1.0.0'
-                }
-            };
-            
-            // אם יש SEO results, הוסף גם אותם
-            if (seoResults && options.includeSeoData) {
-                response.seoAnalysis = {
-                    score: seoResults.seoScore?.total || 0,
-                    enhancedKeywords: seoResults.contentAnalysis?.enhancedKeywords || null
-                };
-            }
-            
-            console.log(`✅ Knowledge Graph analysis completed in ${executionTime}ms`);
-            res.json(response);
-            
-        } catch (kgError) {
-            console.error('Knowledge Graph analysis failed:', kgError);
-            res.status(500).json({
-                success: false,
-                error: `Knowledge Graph analysis failed: ${kgError.message}`,
-                analysis: {
-                    extractedKeywords: analysisKeywords,
-                    keywordCount: analysisKeywords.length
-                }
-            });
-        }
-        
-    } catch (error) {
-        console.error('Knowledge Graph endpoint error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            timestamp: new Date().toISOString()
         });
-    }
-});
-
-/**
- * POST /api/knowledge/quick
- * Quick keyword-only analysis
- */
-router.post('/quick', async (req, res) => {
-    try {
-        const { keywords, language = 'en' } = req.body;
-        
-        if (!keywords || !Array.isArray(keywords) || keywords.length === 0) {
-            return res.status(400).json({
-                success: false,
-                error: 'Keywords array is required'
-            });
-        }
-        
-        const knowledgeGraphResult = await analyzeWithKnowledgeGraph({
-            keywords,
-            language,
-            includeWikidata: false // Quick mode - no Wikidata
-        });
-        
-        res.json({
-            success: true,
-            keywords,
-            language,
-            knowledgeGraph: knowledgeGraphResult,
-            timestamp: new Date().toISOString()
-        });
-        
-    } catch (error) {
-        console.error('Quick Knowledge Graph analysis failed:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * GET /api/knowledge/health
- * Health check for Knowledge Graph service
- */
-router.get('/health', (req, res) => {
-    const hasApiKey = !!process.env.GOOGLE_API_KEY;
-    
-    res.json({
-        service: 'Knowledge Graph',
-        status: 'healthy',
-        features: {
-            googleKnowledgeGraph: hasApiKey,
-            wikidata: true,
-            advertools: true
-        },
-        environment: {
-            hasGoogleApiKey: hasApiKey,
-            pythonAvailable: true
-        },
-        timestamp: new Date().toISOString()
     });
-});
+}
 
-module.exports = router;
+/**
+ * חילוץ keywords מתוצאות SEO
+ */
+function extractKeywordsFromSeoResults(seoResults) {
+    const keywords = [];
+    
+    try {
+        // מהכותרת
+        if (seoResults.results?.pageInfo?.title) {
+            const titleWords = seoResults.results.pageInfo.title
+                .toLowerCase()
+                .split(/\s+/)
+                .filter(word => word.length > 2)
+                .slice(0, 3); // 3 מילים מהכותרת
+            keywords.push(...titleWords);
+        }
+        
+        // מה-meta description
+        if (seoResults.results?.metaTags?.description) {
+            const descWords = seoResults.results.metaTags.description
+                .toLowerCase()
+                .split(/\s+/)
+                .filter(word => word.length > 2)
+                .slice(0, 5); // 5 מילים מהתיאור
+            keywords.push(...descWords);
+        }
+        
+        // מהmeaningful phrases
+        if (seoResults.results?.contentAnalysis?.enhancedKeywords?.meaningful_phrases) {
+            const phrases = seoResults.results.contentAnalysis.enhancedKeywords.meaningful_phrases
+                .map(p => p.phrase)
+                .slice(0, 3); // 3 ביטויים עיקריים
+            keywords.push(...phrases);
+        }
+        
+        // מהkeywords המובילים
+        if (seoResults.results?.contentAnalysis?.enhancedKeywords?.keywords?.mixed) {
+            const topKeywords = seoResults.results.contentAnalysis.enhancedKeywords.keywords.mixed
+                .slice(0, 5) // 5 keywords מובילים
+                .map(k => k.word);
+            keywords.push(...topKeywords);
+        }
+        
+        // נקה ודאדו duplicates
+        const uniqueKeywords = [...new Set(keywords)]
+            .filter(word => word && word.length > 2)
+            .slice(0, 10); // מקסימום 10 keywords
+        
+        console.log(`📊 Extracted ${uniqueKeywords.length} keywords from SEO results`);
+        return uniqueKeywords;
+        
+    } catch (error) {
+        console.error('Error extracting keywords from SEO results:', error);
+        return [];
+    }
+}
+
+/**
+ * חילוץ keywords פשוט מטקסט
+ */
+function extractKeywordsFromText(text) {
+    try {
+        const stopWords = [
+            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+            'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had',
+            'של', 'את', 'עם', 'על', 'אל', 'כל', 'לא', 'אם', 'כי', 'זה', 'היא', 'הוא',
+            'ב', 'ל', 'מ', 'ה', 'ו', 'אני', 'אתה', 'הם', 'אנחנו', 'יש', 'או', 'גם'
+        ];
+        
+        const words = text
+            .toLowerCase()
+            .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
+            .split(/\s+/)
+            .filter(word => 
+                word.length > 2 && 
+                !stopWords.includes(word) &&
+                !/^\d+$/.test(word) // לא רק מספרים
+            );
+        
+        // ספירת תדירות
+        const frequency = {};
+        words.forEach(word => {
+            frequency[word] = (frequency[word] || 0) + 1;
+        });
+        
+        // החזר 10 המילים הנפוצות ביותר
+        const topKeywords = Object.entries(frequency)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 10)
+            .map(([word]) => word);
+        
+        console.log(`📝 Extracted ${topKeywords.length} keywords from text`);
+        return topKeywords;
+        
+    } catch (error) {
+        console.error('Error extracting keywords from text:', error);
+        return [];
+    }
+}
+
+module.exports = {
+    analyzeWithKnowledgeGraph,
+    extractKeywordsFromSeoResults,
+    extractKeywordsFromText
+};
