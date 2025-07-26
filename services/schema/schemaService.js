@@ -1,16 +1,16 @@
 /**
- * Schema Service Module
+ * Enhanced Schema Service Module
  * 
- * מספק פונקציונליות לחילוץ סכמות מובנות מדפי אינטרנט
+ * מספק פונקציונליות לחילוץ וניתוח סכמות מובנות מדפי אינטרנט
  */
 
 const browserPool = require('../../utils/browserPool');
 
 /**
- * חילוץ סכמות JSON-LD מדף אינטרנט
+ * חילוץ וניתוח סכמות JSON-LD מדף אינטרנט
  * @param {string} url - כתובת האתר לחילוץ
  * @param {Object} options - אפשרויות נוספות
- * @returns {Promise<Object>} - תוצאות החילוץ
+ * @returns {Promise<Object>} - תוצאות החילוץ והניתוח
  */
 async function extractSchema(url, options = {}) {
     console.log(`🔍 Extracting schema from: ${url}`);
@@ -193,10 +193,40 @@ async function extractSchema(url, options = {}) {
             }
         });
         
-        // הרכבת תוצאות החילוץ
+        // זיהוי Main Entity
+        const mainEntity = findMainEntity(jsonldSchemas, url);
+        
+        // רשימת Supporting entities (מסנן types טכניים)
+        const supportingTypes = Array.from(schemaTypes).filter(type => 
+            type !== (mainEntity?.type) && 
+            !['ListItem', 'SearchAction', 'EntryPoint', 'PropertyValueSpecification'].includes(type)
+        );
+        
+        // בניית Overview string
+        const mainPart = mainEntity ? `Main: ${mainEntity.type}` : 'Main: Unknown';
+        const supportingPart = supportingTypes.length > 0 ? 
+            `Supporting: ${supportingTypes.join(', ')}` : 'Supporting: None';
+        const schemaOverview = `${mainPart} | ${supportingPart} (${schemaTypes.size} total)`;
+        
+        // הרכבת תוצאות מעודכנות
         const results = {
             url,
             timestamp: new Date().toISOString(),
+            
+            // ניתוח מובנה
+            schema_overview: schemaOverview,
+            raw_schema_data: JSON.stringify(jsonldSchemas, null, 2),
+            
+            // נתונים מפורטים
+            main_entity: mainEntity ? {
+                type: mainEntity.type,
+                name: mainEntity.name,
+                id: mainEntity.id
+            } : null,
+            
+            supporting_entities: supportingTypes,
+            
+            // נתונים טכניים מלאים
             schemas: {
                 jsonld: jsonldSchemas,
                 microdata: microdataSchemas,
@@ -291,7 +321,50 @@ async function quickCheck(url) {
     }
 }
 
+/**
+ * זיהוי Main Entity
+ */
+function findMainEntity(jsonldSchemas, url) {
+    for (const schema of jsonldSchemas) {
+        if (schema['@graph']) {
+            for (const entity of schema['@graph']) {
+                if (isMainEntity(entity, url)) {
+                    return {
+                        type: Array.isArray(entity['@type']) ? entity['@type'][0] : entity['@type'],
+                        name: entity.name,
+                        id: entity['@id']
+                    };
+                }
+            }
+        } else if (isMainEntity(schema, url)) {
+            return {
+                type: Array.isArray(schema['@type']) ? schema['@type'][0] : schema['@type'],
+                name: schema.name,
+                id: schema['@id']
+            };
+        }
+    }
+    return null;
+}
+
+/**
+ * בדיקה אם Entity הוא Main
+ */
+function isMainEntity(entity, url) {
+    if (!entity['@type']) return false;
+    
+    // בדיקת URL match
+    if (entity.url === url || entity['@id'] === url) return true;
+    if (entity['@id'] && url.includes(entity['@id'].replace(/\/$/, ''))) return true;
+    
+    // בדיקת סוגים של Main Entity
+    const types = Array.isArray(entity['@type']) ? entity['@type'] : [entity['@type']];
+    const mainTypes = ['WebPage', 'CollectionPage', 'ItemPage', 'ProductPage', 'ArticlePage'];
+    
+    return types.some(type => mainTypes.includes(type));
+}
+
 module.exports = {
-    extractSchema,
-    quickCheck
+    extractSchema,    // שם הפונקציה נשאר אותו דבר
+    quickCheck        // הפונקציה הקיימת
 };
