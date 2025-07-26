@@ -13,7 +13,7 @@ const schemaService = require('./schemaService');
  * @desc    חילוץ סכמות מובנות מדף אינטרנט
  * @access  Public
  */
-router.post('/extract', async (req, res) => {
+router.post('/schema', async (req, res) => {
     const { url, options = {} } = req.body;
     
     if (!url) {
