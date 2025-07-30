@@ -13,6 +13,7 @@ const screenshotService = require('./screenshotService');
  * @desc    לכידת צילום מסך מדף אינטרנט
  * @access  Public
  */
+
 router.post('/capture', async (req, res) => {
     const { url, options = {} } = req.body;
     
@@ -24,7 +25,19 @@ router.post('/capture', async (req, res) => {
     }
     
     try {
-        const results = await screenshotService.captureScreenshot(url, options);
+        // ודא ש-saveToFile = true כברירת מחדל
+        const finalOptions = {
+            saveToFile: true,  // ← הוסף את זה!
+            ...options
+        };
+        
+        const results = await screenshotService.captureScreenshot(url, finalOptions);
+        
+        // הוסף screenshotUrl אם יש filePath
+        if (results.filePath) {
+            const filename = path.basename(results.filePath);
+            results.screenshotUrl = `${req.protocol}://${req.get('host')}/screenshots/${filename}`;
+        }
         
         res.json({
             success: true,
