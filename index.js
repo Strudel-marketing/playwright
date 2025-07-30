@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const path = require('path');
 
 // Try to load dotenv with error handling
 try {
@@ -23,6 +24,7 @@ const knowledgeRoutes = require('./services/knowledge/knowledgeRoutes');
 // Import utilities
 const browserPool = require('./utils/browserPool');
 const { runLighthouse } = require('./utils/lighthouse');
+
 const authMiddleware = (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     
@@ -45,24 +47,32 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files for screenshots
+// Static files for screenshots (לפני auth!)
 app.use('/screenshots', express.static('/app/screenshots', {
     maxAge: '7d',
-    setHeaders: (res, path) => {
-        res.setHeader('Content-Type', 'image/png');
+    setHeaders: (res, filePath) => {
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.png') {
+            res.setHeader('Content-Type', 'image/png');
+        } else if (ext === '.jpg' || ext === '.jpeg') {
+            res.setHeader('Content-Type', 'image/jpeg');
+        } else if (ext === '.webp') {
+            res.setHeader('Content-Type', 'image/webp');
+        }
     }
 }));
 
-// Health Check
+// Health Check (ללא auth)
 app.get('/health', (req, res) => {
     res.status(200).send('OK');
 });
 
-// Status endpoint
+// Status endpoint (ללא auth)
 app.get('/status', (req, res) => {
     res.json({ status: 'healthy' });
 });
 
+// Auth middleware רק ל-API routes
 app.use('/api', authMiddleware);
 
 // Connect service routes
