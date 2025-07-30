@@ -18,7 +18,7 @@
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/seo/audit \
+curl -X POST https://playwright.strudel.marketing/api/seo/audit \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -84,7 +84,7 @@ curl -X POST https://play.strudel.marketing/api/seo/audit \
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/extract/extract \
+curl -X POST https://playwright.strudel.marketing/api/extract/extract \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example-store.com/product/123",
@@ -136,7 +136,7 @@ curl -X POST https://play.strudel.marketing/api/extract/extract \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/extract/quick-check \
+curl -X POST https://playwright.strudel.marketing/api/extract/quick-check \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com"}'
 ```
@@ -159,7 +159,7 @@ curl -X POST https://play.strudel.marketing/api/extract/quick-check \
 
 **דוגמת curl עם אפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/automation/analyze-forms \
+curl -X POST https://playwright.strudel.marketing/api/automation/analyze-forms \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/contact",
@@ -260,7 +260,7 @@ curl -X POST https://play.strudel.marketing/api/automation/analyze-forms \
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/automation/form \
+curl -X POST https://playwright.strudel.marketing/api/automation/form \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/contact",
@@ -327,7 +327,7 @@ curl -X POST https://play.strudel.marketing/api/automation/form \
 
 **דוגמת curl עם אפשרויות מלאות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/automation/execute \
+curl -X POST https://playwright.strudel.marketing/api/automation/execute \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/login",
@@ -388,7 +388,7 @@ curl -X POST https://play.strudel.marketing/api/automation/execute \
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -416,7 +416,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
   "success": true,
   "results": {
     "screenshotPath": "/screenshots/teena-co-il-20240122063000.png",
-    "screenshotUrl": "https://play.strudel.marketing/screenshots/teena-co-il-20240122063000.png",
+    "screenshotUrl": "https://playwright.strudel.marketing/screenshots/teena-co-il-20240122063000.png",
     "dimensions": { "width": 1920, "height": 2840 },
     "fileSize": "1.2MB"
   }
@@ -430,7 +430,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/multiple \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/multiple \
   -H "Content-Type: application/json" \
   -d '{
     "urls": [
@@ -453,7 +453,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/multiple \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/responsive \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/responsive \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -479,7 +479,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/responsive \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/paa \
+curl -X POST https://playwright.strudel.marketing/api/paa \
   -H "Content-Type: application/json" \
   -d '{"query": "עיצוב פנים לסלון קטן"}'
 ```
@@ -490,7 +490,7 @@ curl -X POST https://play.strudel.marketing/api/paa \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/paa/bing \
+curl -X POST https://playwright.strudel.marketing/api/paa/bing \
   -H "Content-Type: application/json" \
   -d '{"query": "interior design small living room"}'
 ```
@@ -501,7 +501,7 @@ curl -X POST https://play.strudel.marketing/api/paa/bing \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/paa/debug \
+curl -X POST https://playwright.strudel.marketing/api/paa/debug \
   -H "Content-Type: application/json" \
   -d '{"query": "עיצוב פנים לסלון קטן"}'
 ```
@@ -512,7 +512,7 @@ curl -X POST https://play.strudel.marketing/api/paa/debug \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/paa/bing/debug \
+curl -X POST https://playwright.strudel.marketing/api/paa/bing/debug \
   -H "Content-Type: application/json" \
   -d '{"query": "interior design small living room"}'
 ```
@@ -521,7 +521,7 @@ curl -X POST https://play.strudel.marketing/api/paa/bing/debug \
 
 **דוגמת curl:**
 ```bash
-curl https://play.strudel.marketing/api/paa/status
+curl https://playwright.strudel.marketing/api/paa/status
 ```
 
 ---
@@ -541,7 +541,7 @@ curl https://play.strudel.marketing/api/paa/status
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/compare/visual \
+curl -X POST https://playwright.strudel.marketing/api/compare/visual \
   -H "Content-Type: application/json" \
   -d '{
     "url1": "https://example1.com",
@@ -562,7 +562,7 @@ curl -X POST https://play.strudel.marketing/api/compare/visual \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/compare/content \
+curl -X POST https://playwright.strudel.marketing/api/compare/content \
   -H "Content-Type: application/json" \
   -d '{
     "url1": "https://example1.com",
@@ -581,7 +581,7 @@ curl -X POST https://play.strudel.marketing/api/compare/content \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/compare/structure \
+curl -X POST https://playwright.strudel.marketing/api/compare/structure \
   -H "Content-Type: application/json" \
   -d '{
     "url1": "https://example1.com",
@@ -596,7 +596,7 @@ curl -X POST https://play.strudel.marketing/api/compare/structure \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/compare/full \
+curl -X POST https://playwright.strudel.marketing/api/compare/full \
   -H "Content-Type: application/json" \
   -d '{
     "url1": "https://example1.com",
@@ -623,7 +623,7 @@ curl -X POST https://play.strudel.marketing/api/compare/full \
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/compare/advanced \
+curl -X POST https://playwright.strudel.marketing/api/compare/advanced \
   -H "Content-Type: application/json" \
   -d '{
     "mainUrl": "https://mydesignstudio.com",
@@ -660,7 +660,7 @@ curl -X POST https://play.strudel.marketing/api/compare/advanced \
 
 **דוגמת curl עם כל האפשרויות:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
+curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -681,7 +681,7 @@ curl -X POST https://play.strudel.marketing/api/performance/lighthouse \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/performance/lighthouse/full \
+curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse/full \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -700,7 +700,7 @@ curl -X POST https://play.strudel.marketing/api/performance/lighthouse/full \
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://play.strudel.marketing/api/performance/lighthouse/performance \
+curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse/performance \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
@@ -747,7 +747,7 @@ curl -X POST https://play.strudel.marketing/api/performance/lighthouse/performan
 
 **דוגמת curl:**
 ```bash
-curl https://play.strudel.marketing/api/performance/health
+curl https://playwright.strudel.marketing/api/performance/health
 ```
 
 ---
@@ -756,13 +756,13 @@ curl https://play.strudel.marketing/api/performance/health
 
 ### GET /health
 ```bash
-curl https://play.strudel.marketing/health
+curl https://playwright.strudel.marketing/health
 ```
 **תשובה:** `OK`
 
 ### GET /status
 ```bash
-curl https://play.strudel.marketing/status
+curl https://playwright.strudel.marketing/status
 ```
 **תשובה:**
 ```json
