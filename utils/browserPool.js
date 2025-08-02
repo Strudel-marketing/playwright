@@ -336,6 +336,38 @@ getRandomUserAgent() {
 
         return { page, browser: this.browser, context, safeNavigate: (url, navOptions) => this.safeNavigate(page, url, navOptions) };
     }
+
+    /**
+     * Release browser resources (compatibility method for AutomationService)
+     * @param {Object} browser - Browser object (not used, for compatibility)
+     */
+    async release(browser) {
+        // For compatibility with AutomationService
+        // The browser is managed by the pool, so this is essentially a no-op
+        // since we don't actually release the browser per request in pool mode
+        console.log('🔄 Browser release called (managed by pool)');
+        
+        // Optionally, we could do some cleanup here if needed
+        // For now, this is just for compatibility
+    }
+
+    /**
+     * Alternative release method that actually releases a page from pool
+     * @param {Object} pageObject - The page object returned from acquire()
+     */
+    async releasePageObject(pageObject) {
+        if (pageObject && pageObject.context) {
+            try {
+                if (pageObject.page && !pageObject.page.isClosed()) {
+                    await pageObject.page.close();
+                }
+                await pageObject.context.close();
+                console.log('✅ Page and context released');
+            } catch (error) {
+                console.error('❌ Error releasing page:', error);
+            }
+        }
+    }
 }
 
 // יצירת מופע יחיד של מאגר הדפדפנים
