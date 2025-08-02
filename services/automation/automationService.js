@@ -148,6 +148,50 @@ class AutomationService {
               actionResult.success = true;
               actionResult.details = { result: evalResult };
               break;
+
+            case 'setCookies':
+              // טעינת cookies לדף
+              await page.context().addCookies(action.cookies);
+              actionResult.success = true;
+              actionResult.details = { cookiesSet: action.cookies.length };
+              break;
+
+            case 'download':
+              // הורדת קובץ
+              try {
+                const [download] = await Promise.all([
+                  page.waitForDownload({ timeout: action.timeout || 30000 }),
+                  page.click(action.selector)
+                ]);
+                
+                // קריאת הקובץ שהורד
+                const downloadPath = await download.path();
+                const fileData = await fs.readFile(downloadPath);
+                
+                // שמירת הנתונים בתוצאה
+                actionResult.success = true;
+                actionResult.details = {
+                  filename: download.suggestedFilename(),
+                  size: fileData.length,
+                  mimeType: action.expectedMimeType || 'application/octet-stream'
+                };
+                
+                // הוספת הקובץ לתוצאה הכללית
+                actionResult.downloadedFile = {
+                  data: fileData.toString('base64'),
+                  filename: download.suggestedFilename(),
+                  mimeType: action.expectedMimeType || 'application/pdf',
+                  size: fileData.length
+                };
+                
+                // מחיקת הקובץ הזמני
+                await fs.unlink(downloadPath);
+                
+              } catch (downloadError) {
+                actionResult.success = false;
+                actionResult.error = `Download failed: ${downloadError.message}`;
+              }
+              break;
               
             default:
               throw new Error(`Unsupported action type: ${action.type}`);
