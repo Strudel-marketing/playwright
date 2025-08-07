@@ -22,7 +22,12 @@ async function performSeoAudit(url, options = {}) {
     
     try {
         const navigationStart = Date.now();
-        const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+        const {
+          waitUntil = 'networkidle', // ברירת מחדל אם לא סופק
+          timeout = 30000
+        } = options;
+        
+        const response = await page.goto(url, { waitUntil, timeout });
         const statusCode = response ? response.status() : null;
         const navigationEnd = Date.now();
         await page.waitForTimeout(2000);
