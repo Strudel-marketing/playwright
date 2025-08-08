@@ -1,85 +1,115 @@
-/**
- * Advanced SEO Service Module - משופר ומתוקן
- * 
- * מספק ניתוח SEO מקיף עם פלט נקי ומועיל
- */
-
 const browserPool = require('../../utils/browserPool');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-/**
- * ביצוע ניתוח SEO מקיף ומתקדם
- */
 async function performSeoAudit(url, options = {}) {
-    console.log(`🔍 Starting comprehensive SEO audit for: ${url}`);
-    
-    const { includeScreenshot = true } = options;
-    const startTime = Date.now();
-    
-    const { page, context, id } = await browserPool.getPage();
-    
-    try {
-        const navigationStart = Date.now();
-        const {
-          waitUntil = 'networkidle', // ברירת מחדל אם לא סופק
-          timeout = 30000
-        } = options;
-        
-        const response = await page.goto(url, { waitUntil, timeout });
-        const statusCode = response ? response.status() : null;
-        const navigationEnd = Date.now();
-        await page.waitForTimeout(2000);
-        
-        // ===  ניתוח מקיף בקריאות מופחתות ===
-        const basicAnalysis = await extractBasicData(page, url);
-        const contentAnalysis = await analyzeContentAndMedia(page);
-        
-        let screenshot = null;
-        if (includeScreenshot) {
-            screenshot = await captureScreenshot(page);
+  console.log(`🔍 Starting comprehensive SEO audit for: ${url}`);
+
+  const {
+    includeScreenshot = true,
+    waitUntil = 'domcontentloaded', // בטוח יותר כברירת מחדל
+    timeout = 45000,
+    blockThirdParties = true
+  } = options;
+
+  const startTime = Date.now();
+  const { page, context, id } = await browserPool.getPage();
+
+  try {
+    // חסימת משאבים צד-שלישי/תמונות/פונטים (מאיץ ומונע networkidle אינסופי)
+    if (blockThirdParties && context && !context._routesPatched) {
+      await context.route('**/*', route => {
+        const u = route.request().url();
+        if (
+          /\.(png|jpg|jpeg|webp|gif|svg|woff2?|ttf)$/i.test(u) ||
+          /googletagmanager|google-analytics|hotjar|facebook|intercom|tawk|segment\.com|amplitude|clarity/.test(u)
+        ) {
+          return route.abort();
         }
-        
-        const seoScore = calculateSeoScore({
-            ...basicAnalysis,
-            ...contentAnalysis
-        });
-        
-        const executionTime = Date.now() - startTime;
-        const loadTime = navigationEnd - navigationStart;
-        
-        // === מבנה תשובה משופר ===
-        const results = {
-            success: true,
-            statusCode,
-            timestamp: new Date().toISOString(),
-            executionTime,
-            loadTime,
-            userAgent: await page.evaluate(() => navigator.userAgent),
-            viewport: { width: 1920, height: 1080 },
-            
-            results: {
-                seoScore,
-                pageInfo: basicAnalysis.pageInfo,
-                metaTags: basicAnalysis.metaTags,
-                seoChecks: basicAnalysis.seoChecks,
-                contentAnalysis: contentAnalysis.content,
-                linkAnalysis: contentAnalysis.links,
-                structuredData: basicAnalysis.structuredData,
-                screenshot: includeScreenshot ? screenshot : null
-            }
-        };
-        
-        console.log(`✅ SEO audit completed - Status: ${statusCode} - Score: ${seoScore.total}/100`);
-        return results;
-        
-    } catch (error) {
-        console.error(`❌ Error during SEO audit for ${url}:`, error);
-        throw error;
-    } finally {
-        await browserPool.releasePage(id);
+        route.continue();
+      });
+      context._routesPatched = true;
     }
+
+    // שפה/UA מנומסים (עוזר נגד חסימות)
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7'
+    });
+
+    const navigationStart = Date.now();
+
+    // ניווט עם fallback אוטומטי
+    let response;
+    try {
+      response = await page.goto(url, { waitUntil, timeout });
+    } catch (err) {
+      if (waitUntil === 'networkidle') {
+        console.warn('⚠️ networkidle timed out — retrying with domcontentloaded');
+        response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: Math.max(timeout, 45000) });
+      } else {
+        throw err;
+      }
+    }
+
+    const statusCode = response ? response.status() : null;
+    const navigationEnd = Date.now();
+
+    // חכה לתוכן עיקרי (עדיף על “שקט רשת”)
+    await Promise.race([
+      page.waitForSelector('main, article, .entry-content, .post-content, #content, #main', { timeout: 15000 }),
+      page.waitForTimeout(3000) // fallback קצר
+    ]);
+
+    // ===  ניתוח מקיף בקריאות מופחתות ===
+    const basicAnalysis = await extractBasicData(page, url);
+    const contentAnalysis = await analyzeContentAndMedia(page);
+
+    // צילום מסך (אופציונלי)
+    let screenshot = null;
+    if (includeScreenshot) {
+      screenshot = await captureScreenshot(page);
+    }
+
+    // חישוב ציון
+    const seoScore = calculateSeoScore({
+      ...basicAnalysis,
+      ...contentAnalysis
+    });
+
+    const executionTime = Date.now() - startTime;
+    const loadTime = navigationEnd - navigationStart;
+
+    const results = {
+      success: true,
+      statusCode,
+      timestamp: new Date().toISOString(),
+      executionTime,
+      loadTime,
+      userAgent: await page.evaluate(() => navigator.userAgent),
+      viewport: { width: 1920, height: 1080 },
+
+      results: {
+        seoScore,
+        pageInfo: basicAnalysis.pageInfo,
+        metaTags: basicAnalysis.metaTags,
+        seoChecks: basicAnalysis.seoChecks,
+        contentAnalysis: contentAnalysis.content,
+        linkAnalysis: contentAnalysis.links,
+        structuredData: basicAnalysis.structuredData,
+        screenshot: includeScreenshot ? screenshot : null
+      }
+    };
+
+    console.log(`✅ SEO audit completed - Status: ${statusCode} - Score: ${seoScore.total}/100`);
+    return results;
+
+  } catch (error) {
+    console.error(`❌ Error during SEO audit for ${url}:`, error);
+    throw error;
+  } finally {
+    await browserPool.releasePage(id);
+  }
 }
 
 // === פונקציות מאוחדות ומשופרות ===
