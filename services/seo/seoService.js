@@ -562,22 +562,17 @@ function calculateSeoScore(results) {
     const mediaIssues = [];
     
     if (results.seoChecks?.allImagesHaveAlt) {
-        mediaScore += 5;
+      mediaScore += 5;
     } else {
-        const missingAlt = results.seoChecks?.imagesWithoutAlt || 0;
-        if (missingAlt > 0) {
-            mediaIssues.push(`${missingAlt} תמונות ללא alt text`);
-        }
+      const missingAlt = results.seoChecks?.imagesWithoutAlt || 0;
+      if (missingAlt > 0) mediaIssues.push(`${missingAlt} תמונות ללא alt text`);
     }
     
     if ((results.linkAnalysis?.linksWithoutText ?? 0) === 0) mediaScore += 3;
     else mediaIssues.push("יש קישורים ללא טקסט");
     
-    if (results.seoChecks?.isResponsive) mediaScore += 5;
+    if (results.seoChecks?.isResponsive) mediaScore += 7;
     else mediaIssues.push("האתר לא responsive");
-    
-    if (results.seoChecks?.hasH1) mediaScore += 2;
-    else mediaIssues.push("חסר כותרת H1");
     
     categories.media = { score: mediaScore, max: 15, issues: mediaIssues };
     
