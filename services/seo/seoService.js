@@ -17,7 +17,7 @@ async function performSeoAudit(url, options = {}) {
   const { page, context, id } = await browserPool.getPage();
 
   try {
-    // חסימת משאבים צד-שלישי/תמונות/פונטים (מאיץ ומונע networkidle אינסופי)
+    // חסימת משאבים "רעשניים" (מאיץ וגם מונע networkidle אינסופי)
     if (blockThirdParties && context && !context._routesPatched) {
       await context.route('**/*', route => {
         const u = route.request().url();
@@ -32,14 +32,14 @@ async function performSeoAudit(url, options = {}) {
       context._routesPatched = true;
     }
 
-    // שפה/UA מנומסים (עוזר נגד חסימות)
+    // כותרות שפה מנומסות (עוזר מול חלק מהאתרים)
     await page.setExtraHTTPHeaders({
       'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7'
     });
 
     const navigationStart = Date.now();
 
-    // ניווט עם fallback אוטומטי
+    // ניווט עם fallback אם ביקשת networkidle והוא נתקע
     let response;
     try {
       response = await page.goto(url, { waitUntil, timeout });
@@ -55,17 +55,17 @@ async function performSeoAudit(url, options = {}) {
     const statusCode = response ? response.status() : null;
     const navigationEnd = Date.now();
 
-    // חכה לתוכן עיקרי (עדיף על “שקט רשת”)
+    // המתנה לתוכן אמיתי (main/article/entry-content...) במקום לשקט רשת
     await Promise.race([
       page.waitForSelector('main, article, .entry-content, .post-content, #content, #main', { timeout: 15000 }),
       page.waitForTimeout(3000) // fallback קצר
     ]);
 
-    // ===  ניתוח מקיף בקריאות מופחתות ===
+    // === ניתוחים ===
     const basicAnalysis = await extractBasicData(page, url);
     const contentAnalysis = await analyzeContentAndMedia(page);
 
-    // צילום מסך (אופציונלי)
+    // צילום מסך אופציונלי
     let screenshot = null;
     if (includeScreenshot) {
       screenshot = await captureScreenshot(page);
