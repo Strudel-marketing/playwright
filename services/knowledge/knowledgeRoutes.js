@@ -1,251 +1,282 @@
-const express = require('express');
-const router = express.Router();
+#!/usr/bin/env python3
+import json
+import sys
+import os
+import re
+from collections import Counter
+import advertools as adv
+import requests
 
-const { analyzeWithKnowledgeGraph } = require('./knowledgeService'); // ודא נתיבים
-const { performSeoAudit } = require('../seo/seoService');
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
+SCHOLARLY_QID = "Q13442814"  # מאמר אקדמי
 
-// ===== עזר: חילוץ מילות מפתח מטקסט פשוט =====
-function extractKeywordsFromText(text) {
-  const stopWords = new Set([
-    'the','and','or','but','in','on','at','to','for','of','with','by','a','an','is','are','was','were','be','been','have','has','had',
-    'this','that','these','those','from','into','over','under','out','up','down','as','if','then','else','than','very','more','most','less','least','same','such','per','via','within','without',
-    'של','את','עם','על','אל','כל','לא','אם','כי','זה','היא','הוא','אנו','אנחנו','אתם','אתן','הם','הן','או','גם','רק','כמו','לפי','בין','יש','אין','להיות'
-  ]);
+STOP_GENERAL = set("""
+scientific article published study paper report overview introduction conclusion
+january february march april may june july august september october november december
+the and or but in on at to for of with by a an is are was were be been have has had
+this that these those from into over under out up down as if then else than very more most
+less least same such per via within without
+""".split())
 
-  const words = String(text || '')
-    .toLowerCase()
-    .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
-    .split(/\s+/)
-    .filter(w => w.length > 2 && !stopWords.has(w) && !/^\d+$/.test(w));
+def is_qid(s: str) -> bool:
+    return bool(re.fullmatch(r"Q\d+", str(s).strip(), flags=re.I))
 
-  const freq = {};
-  for (const w of words) freq[w] = (freq[w] || 0) + 1;
+def clean_ngram(s: str) -> str:
+    s = re.sub(r"[^A-Za-z\u0590-\u05FF\s-]", " ", s.lower()).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
 
-  return Object.entries(freq)
-    .sort(([,a],[,b]) => b - a)
-    .slice(0, 10)
-    .map(([w]) => w);
-}
+def build_ngrams(words, n_low=2, n_high=4):
+    out = []
+    for n in range(n_low, n_high + 1):
+        for i in range(0, max(0, len(words) - n + 1)):
+            out.append(" ".join(words[i:i+n]))
+    return out
 
-// ===== עזר: ניקוי נושאים/ביטויים =====
-const STOP_GENERAL = new Set([
-  'scientific','article','published','study','paper','report','overview','introduction','conclusion',
-  'december','january','february','march','april','may','june','july','august','september','october','november'
-]);
-const isQid = v => typeof v === 'string' && /^q\d+$/i.test(v);
+def filter_terms(terms, max_items=10):
+    seen = set()
+    res = []
+    for t in terms:
+        t = clean_ngram(t)
+        if not t or is_qid(t) or t in STOP_GENERAL:
+            continue
+        w = t.split()
+        if len(w) < 2 or len(w) > 4:
+            continue
+        if t in seen:
+            continue
+        seen.add(t)
+        res.append(t)
+        if len(res) >= max_items:
+            break
+    return res
 
-function cleanTopics(arr, max = 6) {
-  const out = [];
-  const seen = new Set();
-  for (const t of (arr || [])) {
-    const s = String(t || '').toLowerCase().trim();
-    if (!s || isQid(s) || STOP_GENERAL.has(s)) continue;
-    const words = s.split(/\s+/);
-    if (words.length < 2 || words.length > 4) continue; // רק 2–4 מילים
-    const key = words.join(' ');
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(key);
-    if (out.length >= max) break;
-  }
-  return out;
-}
+def wikidata_search(query: str, language: str = "en", limit: int = 10):
+    """חיפוש ישיר בויקידאטה (wbsearchentities)"""
+    params = {
+        "action": "wbsearchentities",
+        "search": query,
+        "language": language,
+        "uselang": language,
+        "format": "json",
+        "type": "item",
+        "limit": limit,
+    }
+    r = requests.get(WIKIDATA_API, params=params, timeout=15)
+    r.raise_for_status()
+    data = r.json()
+    out = []
+    for item in data.get("search", []):
+        out.append({
+            "id": item.get("id"),
+            "name": item.get("label"),
+            "description": item.get("description"),
+            "url": item.get("url") or None,   # לפעמים קיים כבר כאן
+            "types": [],                      # נמלא בהמשך במידת הצורך
+            "source": "wikidata",
+        })
+    return out
 
-function buildFaqs(keyphrases, max = 5) {
-  const faqs = [];
-  const taken = new Set();
-  for (const p of (keyphrases || [])) {
-    const s = String(p || '').toLowerCase().trim();
-    if (!s || isQid(s) || STOP_GENERAL.has(s)) continue;
-    const words = s.split(/\s+/);
-    if (words.length < 2 || words.length > 5) continue;
-    const q = `מה זה ${s}?`;
-    if (taken.has(q)) continue;
-    taken.add(q);
-    faqs.push(q);
-    if (faqs.length >= max) break;
-  }
-  return faqs;
-}
+def wikidata_get_entities(qids, language="en"):
+    """מביא sitelinks/description בקול אחד עבור רשימת QIDs"""
+    qids = [q for q in qids if is_qid(q)]
+    if not qids:
+        return {}
 
-function entityUrl(e) {
-  if (e?.url) return e.url;
-  if (e?.id && /^Q\d+$/i.test(e.id)) return `https://www.wikidata.org/wiki/${e.id}`;
-  return null;
-}
+    params = {
+        "action": "wbgetentities",
+        "ids": "|".join(qids),
+        "props": "sitelinks|descriptions|claims",
+        "languages": language,
+        "format": "json",
+    }
+    r = requests.get(WIKIDATA_API, params=params, timeout=20)
+    r.raise_for_status()
+    data = r.json().get("entities", {})
+    out = {}
+    for qid, ent in data.items():
+        sitelinks = ent.get("sitelinks", {}) or {}
+        # URL של ויקיפדיה בשפה הרצויה -> אנגלית -> fallback ל־Wikidata
+        url = (sitelinks.get(f"{language}wiki", {}) or {}).get("url") \
+              or (sitelinks.get("enwiki", {}) or {}).get("url") \
+              or f"https://www.wikidata.org/wiki/{qid}"
 
-// ===================================================================
-// POST /api/knowledge/analyze
-// ===================================================================
-router.post('/analyze', async (req, res) => {
-  try {
-    const { url, text, keywords, options = {} } = req.body;
+        # זיהוי טיפוסים בסיסי: אם יש P31 (instance of) == Q13442814 נסמן כמאמר
+        types = []
+        claims = ent.get("claims", {})
+        p31 = claims.get("P31", [])  # instance of
+        for claim in p31:
+            try:
+                typ = claim["mainsnak"]["datavalue"]["value"]["id"]
+                if typ:
+                    types.append(typ)
+            except Exception:
+                pass
 
-    let analysisKeywords = Array.isArray(keywords) ? keywords.filter(Boolean) : [];
+        desc = ent.get("descriptions", {}).get(language, {}) or ent.get("descriptions", {}).get("en", {})
+        description = desc.get("value")
 
-    // אם יש URL ואין keywords - נחלץ מה-SEO (פורמט חדש: dominant_phrases)
-    if (url && analysisKeywords.length === 0) {
-      console.log(`🔍 Extracting keywords from URL: ${url}`);
-      const seoResults = await performSeoAudit(url, {
-        includeScreenshot: false,
-        waitUntil: options.waitUntil || 'domcontentloaded',
-        timeout: options.timeout || 60000
-      });
+        out[qid] = {"url": url, "types": types, "description": description}
+    return out
 
-      const dom = seoResults.results?.contentAnalysis?.enhancedKeywords?.dominant_phrases || [];
-      if (dom.length) {
-        analysisKeywords = dom.slice(0, 5).map(p => p.phrase);
-      }
+def advertools_google_kg(queries, key):
+    """עטיפה קטנה ל־Advertools KG: מחזירה מבנה אחיד: name/description/types/id/url"""
+    results = []
+    for q in queries:
+        try:
+            kg = adv.knowledge_graph(q, key=key)
+        except Exception:
+            continue
+        items = kg.get("itemListElement") or []
+        bundle = []
+        for it in items:
+            res = (it or {}).get("result") or {}
+            google_id = res.get("@id")
+            name = res.get("name")
+            desc = res.get("description")
+            url = None
+            # לפעמים detailedDescription קיים
+            dd = res.get("detailedDescription") or {}
+            if isinstance(dd, dict):
+                url = dd.get("url") or None
+                desc = dd.get("articleBody") or desc
+            types = res.get("@type") or []
+            bundle.append({
+                "id": google_id,
+                "name": name,
+                "description": desc,
+                "url": url,
+                "types": types,
+                "source": "google"
+            })
+        results.append({"query": q, "items": bundle})
+    return results
 
-      // פולבק לגרסה ישנה meaningful_phrases אם אין חדש
-      if (analysisKeywords.length === 0) {
-        const oldMeaningful = seoResults.results?.contentAnalysis?.enhancedKeywords?.meaningful_phrases || [];
-        analysisKeywords = oldMeaningful.slice(0, 5).map(p => p.phrase);
-      }
+def enhanced_knowledge_graph(data):
+    keywords = data.get('keywords', []) or []
+    language = data.get('language', 'en')
+    include_wikidata = data.get('includeWikidata', True)
 
-      // פולבק אחרון: H1 + meta description
-      if (analysisKeywords.length === 0) {
-        const h1s = (seoResults.results?.contentAnalysis?.headings?.h1 || []).join(' ');
-        const desc = seoResults.results?.metaTags?.description || '';
-        analysisKeywords = extractKeywordsFromText(`${h1s} ${desc}`);
-      }
+    # תוצאה בסיסית
+    result = {
+        "success": True,
+        "language": language,
+        "used_advertools": True,
+        "queries": keywords,
+        "entities": [],
+        "google": [],
+        "wikidata": [],
+        "related_terms": [],
+        "semantic_keywords": []
     }
 
-    // אם יש טקסט ואין keywords — נחלץ מהטקסט
-    if (text && analysisKeywords.length === 0) {
-      analysisKeywords = extractKeywordsFromText(text);
-    }
+    try:
+        if not keywords:
+            return {**result, "success": False, "error": "No keywords provided"}
 
-    if (analysisKeywords.length === 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'No keywords found or provided for analysis'
-      });
-    }
+        # 1) Google KG via advertools (אופציונלי לקבל תמונת מצב)
+        google_api_key = os.getenv('GOOGLE_API_KEY')
+        if google_api_key:
+            result["google"] = advertools_google_kg(keywords, google_api_key)
+        else:
+            result["google"] = []
 
-    // ריצה בפועל של Knowledge Graph (Advertools/HTTP + Wikidata)
-    const knowledgeGraphResult = await analyzeWithKnowledgeGraph({
-      keywords: analysisKeywords,
-      language: options.language || 'en',
-      includeWikidata: options.includeWikidata !== false,
-      limit: options.limit || 5
-    });
+        # 2) Wikidata: חיפוש לפי מילות מפתח
+        wikidata_blocks = []
+        if include_wikidata:
+            for q in keywords:
+                items = wikidata_search(q, language=language, limit=5)
+                wikidata_blocks.append({"query": q, "searchItems": items, "sparqlItems": []})
+        result["wikidata"] = wikidata_blocks
 
-    res.json({
-      success: true,
-      url: url || null,
-      text: text ? `${text.substring(0, 100)}...` : null,
-      analyzedKeywords: analysisKeywords,
-      knowledgeGraph: knowledgeGraphResult,
-      timestamp: new Date().toISOString()
-    });
+        # 3) איחוד ישויות + העשרת sitelinks
+        # אסוף כל ה־QIDים שמצאנו בויקידאטה
+        qids = []
+        for blk in wikidata_blocks:
+            for it in blk.get("searchItems", []):
+                if is_qid(it.get("id", "")):
+                    qids.append(it["id"])
+        qids = list(dict.fromkeys(qids))  # ייחוד שמירה על סדר
 
-  } catch (error) {
-    console.error('Knowledge Graph analysis error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+        qid_map = wikidata_get_entities(qids, language=language) if qids else {}
 
-// ===================================================================
-// POST /api/knowledge/brief — בריף תוכן בסיסי מה-KG
-// ===================================================================
-router.post('/brief', async (req, res) => {
-  try {
-    const { url, text, keywords, options = {} } = req.body;
+        entities = []
+        for blk in wikidata_blocks:
+            for it in blk.get("searchItems", []):
+                ent = {
+                    "id": it.get("id"),
+                    "name": it.get("name"),
+                    "description": it.get("description"),
+                    "url": it.get("url"),
+                    "types": [],
+                    "source": "wikidata"
+                }
+                if ent["id"] in qid_map:
+                    enr = qid_map[ent["id"]]
+                    ent["url"] = ent["url"] or enr.get("url")
+                    ent["types"] = enr.get("types") or []
+                    if not ent.get("description"):
+                        ent["description"] = enr.get("description")
+                # סינון: נעדיף לא לכלול מאמרים אקדמיים כבר בשכבה הזו
+                if SCHOLARLY_QID in (ent["types"] or []):
+                    # נשמור אותם כמקור ידע אבל פחות נעדיף ל־focus
+                    pass
+                entities.append(ent)
 
-    let analysisKeywords = Array.isArray(keywords) ? keywords.filter(Boolean) : [];
+        result["entities"] = entities
 
-    if (analysisKeywords.length === 0 && text) {
-      analysisKeywords = extractKeywordsFromText(text);
-    }
+        # 4) בניית related/semantic נקיים
+        # related_terms: מתוך תיאורים של ישויות (לא מאמרים), ניקוי, top-10
+        bag = []
+        for ent in entities:
+            if SCHOLARLY_QID in (ent.get("types") or []):
+                continue
+            desc = ent.get("description") or ""
+            text = clean_ngram(desc)
+            words = [w for w in text.split() if w not in STOP_GENERAL and len(w) > 2]
+            bag.extend(build_ngrams(words, 2, 3))  # 2–3 מילים
+        cnt = Counter(bag)
+        related_terms = [t for t, _ in cnt.most_common(30)]
+        related_terms = filter_terms(related_terms, max_items=10)
 
-    if (analysisKeywords.length === 0 && url) {
-      const seoResults = await performSeoAudit(url, {
-        includeScreenshot: false,
-        waitUntil: options.waitUntil || 'domcontentloaded',
-        timeout: options.timeout || 60000
-      });
-      const dom = seoResults.results?.contentAnalysis?.enhancedKeywords?.dominant_phrases || [];
-      if (dom.length) {
-        analysisKeywords = dom.slice(0, 5).map(p => p.phrase);
-      }
-      if (analysisKeywords.length === 0) {
-        const oldMeaningful = seoResults.results?.contentAnalysis?.enhancedKeywords?.meaningful_phrases || [];
-        analysisKeywords = oldMeaningful.slice(0, 5).map(p => p.phrase);
-      }
-      if (analysisKeywords.length === 0) {
-        const h1s = (seoResults.results?.contentAnalysis?.headings?.h1 || []).join(' ');
-        const desc = seoResults.results?.metaTags?.description || '';
-        analysisKeywords = extractKeywordsFromText(`${h1s} ${desc}`);
-      }
-    }
+        # semantic_keywords: שם הישות + ביטויים מועילים מתוך התיאור
+        sem_bag = []
+        for ent in entities:
+            name = ent.get("name")
+            if name:
+                sem_bag.append(clean_ngram(name))
+            desc = ent.get("description") or ""
+            text = clean_ngram(desc)
+            words = [w for w in text.split() if w not in STOP_GENERAL and len(w) > 2]
+            sem_bag.extend(build_ngrams(words, 2, 4))
+        cnt2 = Counter(sem_bag)
+        semantic_keywords = [t for t, _ in cnt2.most_common(50)]
+        semantic_keywords = filter_terms(semantic_keywords, max_items=15)
 
-    if (analysisKeywords.length === 0) {
-      return res.status(400).json({ success: false, error: 'No keywords found or provided for brief' });
-    }
+        result["related_terms"] = related_terms
+        result["semantic_keywords"] = semantic_keywords
 
-    const kg = await analyzeWithKnowledgeGraph({
-      keywords: analysisKeywords,
-      language: options.language || 'he',
-      includeWikidata: options.includeWikidata !== false,
-      limit: options.limit || 5
-    });
+        return result
 
-    // ===== בניית בריף משופר =====
-    const entities = Array.isArray(kg.entities) ? kg.entities : [];
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "debug_info": {
+                "keywords_count": len(keywords),
+                "has_api_key": bool(os.getenv('GOOGLE_API_KEY'))
+            }
+        }
 
-    // 1) focus_entities — מסנן "מאמרים אקדמיים" (Q13442814) ומנקה כפולים
-    const isScholarly = (ent) =>
-      Array.isArray(ent?.types) && ent.types.some(t => isQid(String(t)) && String(t).toLowerCase() === 'q13442814');
-
-    const focus_entities = [];
-    const seenFocus = new Set();
-    for (const e of entities) {
-      if (!e?.name) continue;
-      if (isScholarly(e)) continue;
-      const key = e.name.trim().toLowerCase();
-      if (seenFocus.has(key)) continue;
-      seenFocus.add(key);
-      focus_entities.push(e.name.trim());
-      if (focus_entities.length >= 3) break;
-    }
-    // פולבק בסיסי
-    if (focus_entities.length === 0) {
-      for (const e of entities) {
-        if (!e?.name) continue;
-        const key = e.name.trim().toLowerCase();
-        if (seenFocus.has(key)) continue;
-        seenFocus.add(key);
-        focus_entities.push(e.name.trim());
-        if (focus_entities.length >= 3) break;
-      }
-    }
-
-    // 2) suggested_h2 — n-grams נקיים (2–4 מילים) ממילות מפתח סמנטיות/קשורות
-    const suggested_h2 = cleanTopics(kg.semantic_keywords)
-      .concat(cleanTopics(kg.related_terms))
-      .slice(0, 6);
-
-    // 3) FAQs — “מה זה …?” על ביטויים נקיים
-    const faqs = buildFaqs(kg.semantic_keywords);
-
-    // 4) References — URL אם קיים, אחרת קישור Wikidata
-    const references = entities.map(entityUrl).filter(Boolean).slice(0, 5);
-
-    const brief = { focus_entities, suggested_h2, faqs, references };
-
-    res.json({
-      success: true,
-      analyzedKeywords: analysisKeywords,
-      brief,
-      knowledgeGraph: kg,
-      timestamp: new Date().toISOString()
-    });
-
-  } catch (error) {
-    console.error('Knowledge Graph brief error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-module.exports = router;
+if __name__ == '__main__':
+    if len(sys.argv) != 2:
+        print(json.dumps({"success": False, "error": "Missing input data argument"}))
+        sys.exit(1)
+    try:
+        data = json.loads(sys.argv[1])
+        out = enhanced_knowledge_graph(data)
+        print(json.dumps(out, ensure_ascii=False))
+    except json.JSONDecodeError as e:
+        print(json.dumps({"success": False, "error": f"Invalid JSON input: {str(e)}"}))
+    except Exception as e:
+        print(json.dumps({"success": False, "error": f"Unexpected error: {str(e)}"}))
