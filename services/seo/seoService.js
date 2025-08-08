@@ -507,25 +507,23 @@ function calculateSeoScore(results) {
     if (results.seoChecks?.isHttps) technicalScore += 5;
     else technicalIssues.push("האתר לא מאובטח (לא HTTPS)");
     
-    if (results.seoChecks?.hasCanonical) technicalScore += 3;
+    if (results.seoChecks?.hasCanonical) technicalScore += 4;
     else technicalIssues.push("חסר canonical URL");
     
-    if (results.seoChecks?.hasViewport) technicalScore += 3;
+    if (results.seoChecks?.hasViewport) technicalScore += 4;
     else technicalIssues.push("חסר viewport meta tag");
     
     if (results.seoChecks?.hasDoctype) technicalScore += 2;
     else technicalIssues.push("חסר DOCTYPE");
     
-    if (results.seoChecks?.hasLang) technicalScore += 2;
+    if (results.seoChecks?.hasLang) technicalScore += 3;
     else technicalIssues.push("חסר שפה בHTML");
     
     if (results.seoChecks?.hasFavicon) technicalScore += 2;
     else technicalIssues.push("חסר favicon");
     
-    if (results.seoChecks?.hasSitemap) technicalScore += 3;
-    else technicalIssues.push("חסר sitemap");
-    
     categories.technical = { score: technicalScore, max: 20, issues: technicalIssues };
+
     
     // === קטגוריית תוכן (20 נקודות) — עודכן לשימוש בביטויים דומיננטיים ===
     let contentScore = 0;
