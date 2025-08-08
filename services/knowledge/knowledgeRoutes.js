@@ -38,7 +38,11 @@ router.post('/analyze', async (req, res) => {
     // אם יש URL ואין keywords - נחלץ מה-SEO (פורמט חדש: dominant_phrases)
     if (url && analysisKeywords.length === 0) {
       console.log(`🔍 Extracting keywords from URL: ${url}`);
-      const seoResults = await performSeoAudit(url, { includeScreenshot: false });
+      const seoResults = await performSeoAudit(url, {
+        includeScreenshot: false,
+        waitUntil: options.waitUntil || 'domcontentloaded',
+        timeout: options.timeout || 60000
+      });
 
       const dom = seoResults.results?.contentAnalysis?.enhancedKeywords?.dominant_phrases || [];
       if (dom.length) {
