@@ -158,6 +158,7 @@ async function extractBasicData(page, url) {
             const metaDesc = document.querySelector('meta[name="description"]')?.content || '';
             const images = Array.from(document.querySelectorAll('img'));
             const h1s = document.querySelectorAll('h1');
+            const hasSitemap = !!document.querySelector('link[rel="sitemap"]');
             
             // בדיקת mobile responsiveness בסיסית
             const hasViewportMeta = !!document.querySelector('meta[name="viewport"]');
@@ -188,6 +189,7 @@ async function extractBasicData(page, url) {
                 hasDoctype: !!document.doctype,
                 hasLang: !!document.documentElement.lang,
                 hasFavicon: !!document.querySelector('link[rel*="icon"]'),
+                hasSitemap: hasSitemap,
                 
                 // תמונות
                 totalImages: images.length,
@@ -220,33 +222,180 @@ async function extractBasicData(page, url) {
     }, url);
 }
 
+/**
+ * === גרסה חדשה: ניתוח תוכן + ביטויים דומיננטיים (2–4 מילים) ===
+ * enhancedKeywords = { dominant_phrases: [...], summary: {...} }
+ */
 async function analyzeContentAndMedia(page) {
     return await page.evaluate(() => {
-        // === ניתוח תוכן משופר ===
+
+        // ===== Helpers =====
+        function normalizeHebrew(str = '') {
+            return str
+                .replace(/[\u05B0-\u05BD\u05BF\u05C1-\u05C2\u05C4\u05C5\u05C7]/g, '') // ניקוד
+                .replace(/[\"׳״']/g, '') // גרשיים
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+        function tokenize(text = '') {
+            return text
+                .toLowerCase()
+                .replace(/[^\u0590-\u05FFa-zA-Z0-9\s\-]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .split(' ')
+                .filter(w => w.length > 1);
+        }
+        function buildNgrams(tokens, nMin = 2, nMax = 4) {
+            const out = [];
+            for (let n = nMin; n <= nMax; n++) {
+                for (let i = 0; i <= tokens.length - n; i++) {
+                    out.push(tokens.slice(i, i + n).join(' '));
+                }
+            }
+            return out;
+        }
+        function collectText(el) {
+            return (el && (el.innerText || el.textContent) || '').trim();
+        }
+        function getMainContentRoot() {
+            const picks = ['main', '[role="main"]', 'article', '.main-content', '.content', '.entry-content', '.post-content', '#content', '#main-content'];
+            for (const s of picks) { const el = document.querySelector(s); if (el) return el; }
+            const cands = Array.from(document.querySelectorAll('div, section, article'));
+            let best = null, bestScore = 0;
+            for (const el of cands) {
+                const p = el.querySelectorAll('p').length;
+                const h = el.querySelectorAll('h1,h2,h3').length;
+                const t = (el.innerText || '').length;
+                const score = p * 2 + h + t / 100;
+                if (score > bestScore) { best = el; bestScore = score; }
+            }
+            return best || document.body;
+        }
+        function isGarbagePhrase(p) {
+            const blacklist = [
+                'קרא עוד', 'לחץ כאן', 'learn more', 'read more', 'click here',
+                'posted', 'reply', 'menu', 'search', 'home', 'contact', 'about'
+            ];
+            return blacklist.includes(p);
+        }
+
+        // ===== dominant_phrases builder =====
+        function buildDominantPhrases() {
+            const root = getMainContentRoot();
+
+            const title = document.title || '';
+            const h1s = Array.from(document.querySelectorAll('h1'));
+            const h2s = Array.from(document.querySelectorAll('h2'));
+            const meta = document.querySelector('meta[name="description"]')?.content || '';
+            const anchors = Array.from(root.querySelectorAll('a[href]'));
+            const imgs = Array.from(root.querySelectorAll('img[alt]'));
+
+            // תוכן עיקרי
+            const mainText = normalizeHebrew(collectText(root));
+            const mainTokens = tokenize(mainText);
+            const stop = (typeof getStopWords === 'function') ? getStopWords('mixed') : [];
+            const filtered = mainTokens.filter(t => !stop.includes(t));
+
+            // N-grams 2–4 מילים
+            const ngrams = buildNgrams(filtered, 2, 4);
+
+            // מיפוי ניקוד
+            const map = new Map(); // phrase -> { score, count, in:{} }
+            const bump = (phrase, pts, flag) => {
+                if (!phrase || isGarbagePhrase(phrase)) return;
+                const item = map.get(phrase) || { score: 0, count: 0, in: { title: false, h1: false, h2: false, meta: false, anchors: false, alt: false, intro: false } };
+                item.score += pts;
+                if (flag) item.in[flag] = true;
+                map.set(phrase, item);
+            };
+
+            // תדירות בתוכן – בסיס
+            const counts = new Map();
+            for (const p of ngrams) {
+                if (isGarbagePhrase(p)) continue;
+                counts.set(p, (counts.get(p) || 0) + 1);
+            }
+            counts.forEach((c, p) => { if (c > 1) { // דרוש לפחות פעמיים
+                bump(p, c);
+            }});
+
+            // בונוסים לפי מיקום
+            const bonifyText = (txt, pts, flag) => {
+                const toks = tokenize(normalizeHebrew(txt));
+                const ngs = buildNgrams(toks, 2, 4);
+                ngs.forEach(p => bump(p, pts, flag));
+            };
+            bonifyText(title, 5, 'title');
+            h1s.forEach(h => bonifyText(collectText(h), 4, 'h1'));
+            h2s.forEach(h => bonifyText(collectText(h), 2, 'h2'));
+            bonifyText(meta, 3, 'meta');
+            anchors.forEach(a => bonifyText(collectText(a), 1, 'anchors'));
+            imgs.forEach(img => bonifyText(img.alt || '', 1, 'alt'));
+
+            // פתיח (200 מילים ראשונות)
+            const intro = filtered.slice(0, 200);
+            buildNgrams(intro, 2, 4).forEach(p => bump(p, 2, 'intro'));
+
+            // יצירת רשימה
+            const result = Array.from(map.entries())
+                .filter(([p, v]) => v.score > 0 && p.split(' ').length <= 5)
+                .sort((a, b) => b[1].score - a[1].score || (b[0].split(' ').length - a[0].split(' ').length))
+                .map(([phrase, meta]) => {
+                    const re = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+                    const count = (mainText.match(re) || []).length;
+                    return { phrase, score: meta.score, count, in: meta.in };
+                })
+                .filter((item, idx, arr) => {
+                    const shorterInside = arr.slice(0, idx).some(prev => item.phrase.includes(prev.phrase));
+                    return !shorterInside;
+                })
+                .slice(0, 12);
+
+            return result;
+        }
+
+        function extractCleanContent() {
+            const tempDoc = document.cloneNode(true);
+            const scripts = tempDoc.querySelectorAll('script, style, noscript, nav, footer, .menu, .navigation');
+            scripts.forEach(el => el.remove());
+            const contentSelectors = [
+                'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                'li', 'article', 'main', '.content', '.entry-content', '.post-content'
+            ].join(', ');
+            const contentElements = tempDoc.querySelectorAll(contentSelectors);
+            let cleanText = '';
+            contentElements.forEach(el => {
+                const text = el.innerText || el.textContent || '';
+                const filteredText = text
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                if (filteredText.length > 10) {
+                    cleanText += filteredText + ' ';
+                }
+            });
+            return cleanText.trim();
+        }
+
         function analyzeContent() {
             const headings = {
                 h1: Array.from(document.querySelectorAll('h1')).map(h => h.innerText.trim()),
                 h2: Array.from(document.querySelectorAll('h2')).map(h => h.innerText.trim()),
                 h3: Array.from(document.querySelectorAll('h3')).map(h => h.innerText.trim())
             };
-            
             const headingCounts = {
                 h1: headings.h1.length,
                 h2: headings.h2.length,
                 h3: headings.h3.length,
                 total: headings.h1.length + headings.h2.length + headings.h3.length
             };
-            
-            // חילוץ תוכן נקי
             const bodyText = extractCleanContent();
-            const words = bodyText.trim().split(/\s+/).filter(word => word.length > 0);
+            const words = bodyText.trim().split(/\s+/).filter(w => w.length > 0);
             const sentences = bodyText.split(/[.!?]+/).filter(s => s.trim().length > 0);
-            
-            // ניתוח מילות מפתח וביטויים
-            const enhancedKeywordAnalysis = analyzeKeywordsAndNgrams(bodyText);
-            
             const avgWordsPerSentence = sentences.length > 0 ? (words.length / sentences.length).toFixed(1) : 0;
-            
+
+            const dominant = buildDominantPhrases();
+
             return {
                 headings,
                 headingCounts,
@@ -255,315 +404,46 @@ async function analyzeContentAndMedia(page) {
                     totalSentences: sentences.length,
                     avgWordsPerSentence: parseFloat(avgWordsPerSentence)
                 },
-                enhancedKeywords: enhancedKeywordAnalysis,
+                enhancedKeywords: {
+                    dominant_phrases: dominant,
+                    summary: { total: dominant.length, method: 'weighted_ngrams_v2' }
+                },
                 readability: {
                     score: avgWordsPerSentence < 20 ? 80 : 60,
                     level: avgWordsPerSentence < 20 ? 'קל לקריאה' : 'בינוני'
                 }
             };
         }
-        
-        function extractCleanContent() {
-            // הסר סקריפטים וסטיילים
-            const tempDoc = document.cloneNode(true);
-            const scripts = tempDoc.querySelectorAll('script, style, noscript, nav, footer, .menu, .navigation');
-            scripts.forEach(el => el.remove());
-            
-            // קח רק תוכן עיקרי
-            const contentSelectors = [
-                'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 
-                'article', 'main', '.content', '.entry-content', '.post-content'
-            ].join(', ');
-            
-            const contentElements = tempDoc.querySelectorAll(contentSelectors);
-            let cleanText = '';
-            
-            contentElements.forEach(el => {
-                const text = el.innerText || el.textContent || '';
-                // סינון קוד JavaScript
-                const filteredText = text
-                    .replace(/function\s*\([^)]*\)\s*{[^}]*}/g, '')
-                    .replace(/var\s+\w+\s*=\s*[^;]+;/g, '')
-                    .replace(/\b(function|var|return|if|for|while|console|document|window)\b/g, '')
-                    .replace(/[{}();=]/g, ' ')
-                    .replace(/\s+/g, ' ')
-                    .trim();
-                
-                if (filteredText.length > 10) {
-                    cleanText += filteredText + ' ';
-                }
-            });
-            
-            return cleanText.trim();
-        }
-        
-        function analyzeKeywordsAndNgrams(text) {
-            const hebrewText = extractHebrewText(text);
-            const englishText = extractEnglishText(text);
-            
-            return {
-                keywords: {
-                    hebrew: getTopKeywords(hebrewText, 'he'),
-                    english: getTopKeywords(englishText, 'en'),
-                    mixed: getTopKeywords(text, 'mixed')
-                },
-                meaningful_phrases: getMeaningfulNgrams(text),
-                summary: {
-                    totalKeywords: getTopKeywords(text, 'mixed').length,
-                    dominantLanguage: hebrewText.length > englishText.length ? 'hebrew' : 'english'
-                }
-            };
-        }
-        
-        function getMeaningfulNgrams(text) {
-            const stopWords = getStopWords('mixed');
-            const words = text.toLowerCase()
-                .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
-                .split(/\s+/)
-                .filter(word => word.length > 1 && !stopWords.includes(word));
-            
-            const phrases = {};
-            
-            // 2-4 מילים בלבד
-            for (let n = 2; n <= 4; n++) {
-                for (let i = 0; i <= words.length - n; i++) {
-                    const phrase = words.slice(i, i + n).join(' ');
-                    if (phrase.trim() && phrase.split(' ').every(w => w.length > 1)) {
-                        phrases[phrase] = (phrases[phrase] || 0) + 1;
-                    }
-                }
-            }
-            
-            // רק ביטויים שחוזרים יותר מפעם אחת, רק 4 הבולטים
-            return Object.entries(phrases)
-                .filter(([phrase, count]) => count > 1)
-                .sort(([,a], [,b]) => b - a)
-                .slice(0, 4)
-                .map(([phrase, count]) => ({ phrase, count }));
-        }
-        
-        function extractHebrewText(text) {
-            const hebrewMatches = text.match(/[\u0590-\u05FF\s]+/g);
-            return hebrewMatches ? hebrewMatches.join(' ').replace(/\s+/g, ' ').trim() : '';
-        }
-        
-        function extractEnglishText(text) {
-            const englishMatches = text.match(/[a-zA-Z\s]+/g);
-            return englishMatches ? englishMatches.join(' ').replace(/\s+/g, ' ').trim() : '';
-        }
-        
-        function getTopKeywords(text, language = 'mixed') {
-            if (!text.trim()) return [];
-            
-            const stopWords = getStopWords(language);
-            const words = text.toLowerCase()
-                .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
-                .split(/\s+/)
-                .filter(word => word.length > 2 && !stopWords.includes(word));
-            
-            const frequency = {};
-            words.forEach(word => {
-                frequency[word] = (frequency[word] || 0) + 1;
-            });
-            
-            return Object.entries(frequency)
-                .sort(([,a], [,b]) => b - a)
-                .slice(0, 10)
-                .map(([word, count]) => ({
-                    word,
-                    count,
-                    density: ((count / words.length) * 100).toFixed(2) + '%'
-                }));
-        }
-        
-        function getStopWords(language) {
-            const hebrew = ['של', 'את', 'עם', 'על', 'אל', 'כל', 'לא', 'אם', 'כי', 'זה', 'היא', 'הוא', 'ב', 'ל', 'מ', 'ה', 'ו', 'אני', 'אתה', 'הם', 'אנחנו', 'יש', 'יהיה', 'היה', 'או', 'גם', 'רק', 'כמו', 'בין', 'פי', 'לפי', 'אחר', 'אחת', 'שני', 'שלש'];
-            const english = ['the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'should', 'could', 'can', 'may', 'might', 'this', 'that', 'these', 'those'];
-            
-            if (language === 'he') return hebrew;
-            if (language === 'en') return english;
-            return [...hebrew, ...english];
-        }
-        
-        // === ניתוח לינקים משופר - רק מתוכן עיקרי ===
-        function analyzeContentLinks() {
+
+        function analyzeLinks() {
             const currentDomain = window.location.hostname;
-            
-            // מציאת האזור עם התוכן העיקרי
-            const contentArea = findMainContentArea();
-            
-            if (!contentArea) {
-                console.warn('לא נמצא אזור תוכן עיקרי, חוזר לניתוח רגיל');
-                return analyzeAllLinks(); // fallback לפונקציה הקיימת
-            }
-            
-            // קישורים רק מתוכן העיקרי
-            const contentLinks = Array.from(contentArea.querySelectorAll('a[href]'));
-            
+            const contentLinks = Array.from(document.querySelectorAll('a[href]'));
             let internal = 0, external = 0;
-            const linkDetails = [];
-            
             contentLinks.forEach(link => {
                 try {
                     const linkUrl = new URL(link.href, window.location.href);
-                    const linkText = link.textContent.trim();
-                    const linkTitle = link.title || '';
-                    
-                    const linkInfo = {
-                        url: link.href,
-                        text: linkText,
-                        title: linkTitle,
-                        hasText: linkText.length > 0,
-                        isInternal: linkUrl.hostname === currentDomain
-                    };
-                    
                     if (linkUrl.hostname === currentDomain) {
                         internal++;
-                        linkInfo.type = 'internal';
                     } else {
                         external++;
-                        linkInfo.type = 'external';
                     }
-                    
-                    linkDetails.push(linkInfo);
-                } catch (error) {
-                    console.warn('בעיה בניתוח קישור:', link.href);
-                }
+                } catch { }
             });
-            
             return {
                 total: contentLinks.length,
                 internal,
                 external,
-                contentOnly: true, // סימון שזה ניתוח של תוכן בלבד
-                linksWithoutText: linkDetails.filter(link => !link.hasText).length,
-                details: linkDetails.slice(0, 10) // רק 10 הראשונים למניעת עומס
+                contentOnly: true,
+                linksWithoutText: contentLinks.filter(link => !link.textContent.trim()).length
             };
         }
-        
-        function findMainContentArea() {
-            // רשימת סלקטורים לתוכן עיקרי (לפי סדר עדיפות)
-            const contentSelectors = [
-                'main',
-                '[role="main"]',
-                'article',
-                '.main-content',
-                '.content',
-                '.post-content',
-                '.entry-content',
-                '.article-content',
-                '#content',
-                '#main-content',
-                '.page-content',
-                '.blog-content'
-            ];
-            
-            // חיפוש הסלקטור הראשון שקיים
-            for (const selector of contentSelectors) {
-                const element = document.querySelector(selector);
-                if (element) {
-                    console.log(`נמצא תוכן עיקרי עם: ${selector}`);
-                    return element;
-                }
-            }
-            
-            // אם לא נמצא, נסה למצוא לפי היוריסטיקה
-            return findContentByHeuristics();
-        }
-        
-        function findContentByHeuristics() {
-            // חיפוש האלמנט עם הכי הרבה פסקאות וכותרות
-            const candidates = Array.from(document.querySelectorAll('div, section, article'));
-            
-            let bestCandidate = null;
-            let bestScore = 0;
-            
-            candidates.forEach(element => {
-                // דלג על header, footer, nav, sidebar
-                if (isNavigationArea(element)) return;
-                
-                const paragraphs = element.querySelectorAll('p').length;
-                const headings = element.querySelectorAll('h1, h2, h3, h4, h5, h6').length;
-                const textLength = element.textContent.length;
-                
-                // חישוב ציון על בסיס כמות תוכן
-                const score = (paragraphs * 2) + headings + (textLength / 100);
-                
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestCandidate = element;
-                }
-            });
-            
-            if (bestCandidate) {
-                console.log(`נמצא תוכן עיקרי בהיוריסטיקה עם ציון: ${bestScore}`);
-            }
-            
-            return bestCandidate;
-        }
-        
-        function isNavigationArea(element) {
-            // בדיקה אם האלמנט הוא אזור ניווט
-            const navigationSelectors = [
-                'header', 'footer', 'nav', 'aside',
-                '.header', '.footer', '.navigation', '.nav',
-                '.sidebar', '.menu', '.widget', '.advertisement',
-                '#header', '#footer', '#sidebar', '#nav'
-            ];
-            
-            // בדיקה ישירה
-            const tagName = element.tagName.toLowerCase();
-            if (['header', 'footer', 'nav', 'aside'].includes(tagName)) {
-                return true;
-            }
-            
-            // בדיקה לפי קלאס ואיידי
-            const className = element.className || '';
-            const id = element.id || '';
-            
-            return navigationSelectors.some(selector => {
-                const cleanSelector = selector.replace(/^[#.]/, '');
-                return className.includes(cleanSelector) || id.includes(cleanSelector);
-            });
-        }
-        
-        // פונקציה מקורית כ-fallback
-        function analyzeAllLinks() {
-            const links = Array.from(document.querySelectorAll('a[href]'));
-            const currentDomain = window.location.hostname;
-            
-            let internal = 0, external = 0;
-            links.forEach(link => {
-                try {
-                    const linkUrl = new URL(link.href, window.location.href);
-                    if (linkUrl.hostname === currentDomain) {
-                        internal++;
-                    } else {
-                        external++;
-                    }
-                } catch {}
-            });
-            
-            return {
-                total: links.length,
-                internal,
-                external,
-                contentOnly: false
-            };
-        }
-        
-        // === השימוש החדש בפונקציה הראשית ===
-        function analyzeLinks() {
-            return analyzeContentLinks();
-        }
-        
-        // === הרצת הניתוחים ===
-            return {
-                content: analyzeContent(),
-                links: analyzeLinks()
-            };
-        });
-    }
+
+        return {
+            content: analyzeContent(),
+            links: analyzeLinks()
+        };
+    });
+}
 
 // === חישוב ציון SEO משופר ===
 function calculateSeoScore(results) {
@@ -617,7 +497,7 @@ function calculateSeoScore(results) {
     
     categories.technical = { score: technicalScore, max: 20, issues: technicalIssues };
     
-    // === קטגוריית תוכן (20 נקודות) ===
+    // === קטגוריית תוכן (20 נקודות) — עודכן לשימוש בביטויים דומיננטיים ===
     let contentScore = 0;
     const contentIssues = [];
     
@@ -625,9 +505,15 @@ function calculateSeoScore(results) {
     if (totalWords > 300) contentScore += 5;
     else contentIssues.push("תוכן קצר מידי (פחות מ-300 מילים)");
     
-    const keywordCount = results.contentAnalysis?.enhancedKeywords?.keywords?.mixed?.length || 0;
-    if (keywordCount > 5) contentScore += 5;
-    else contentIssues.push("מעט מילות מפתח מזוהות");
+    // 🔁 חדש: במקום keywordCount>5 — בודקים ביטויים דומיננטיים חזקים
+    const domPhrases = results.contentAnalysis?.enhancedKeywords?.dominant_phrases || [];
+    // "חזק" = score >= 6 (ניתן לשינוי לפי הצורך)
+    const strongPhrases = domPhrases.filter(p => (p?.score ?? 0) >= 6).length;
+    if (strongPhrases >= 3) {
+        contentScore += 5;
+    } else {
+        contentIssues.push("מעט ביטויי מפתח דומיננטיים (נסו למקד את התוכן סביב 2–4 ביטויים מרכזיים)");
+    }
     
     const headingCount = results.contentAnalysis?.headingCounts?.total || 0;
     if (headingCount > 3) contentScore += 3;
@@ -656,7 +542,7 @@ function calculateSeoScore(results) {
         }
     }
     
-    if (results.seoChecks?.linksWithoutText === 0) mediaScore += 3;
+    if ((results.linkAnalysis?.linksWithoutText ?? 0) === 0) mediaScore += 3;
     else mediaIssues.push("יש קישורים ללא טקסט");
     
     if (results.seoChecks?.isResponsive) mediaScore += 5;
