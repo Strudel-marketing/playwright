@@ -9,6 +9,22 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// רשימת Webshare proxies
+const webshareProxies = [
+  { server: 'http://23.95.150.145:6114', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://198.23.239.134:6540', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://107.172.163.27:6543', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://64.137.96.74:6641', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://45.43.186.39:6257', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://216.10.27.159:6837', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://136.0.207.84:6661', username: 'sohnypch', password: 'o6ew6jbux75e' },
+  { server: 'http://142.147.128.93:6593', username: 'sohnypch', password: 'o6ew6jbux75e' }
+];
+
+function getRandomProxy() {
+  return webshareProxies[Math.floor(Math.random() * webshareProxies.length)];
+}
+
 /**
  * לכידת צילום מסך מדף אינטרנט או מ-HTML
  * @param {string|null} url - כתובת האתר ללכידה (יכול להיות null אם שולחים options.html)
@@ -18,6 +34,8 @@ const crypto = require('crypto');
  *    options.disableJavaScript - ביטול JS בדף (ברירת מחדל: false)
  *    options.blockPopups - חסימת media/fonts וכו' (ברירת מחדל: true)
  *    options.ignoreHTTPSErrors - התעלמות משגיאות HTTPS (ברירת מחדל: true)
+ *    options.useProxy - שימוש ב-proxy rotation (ברירת מחדל: false)
+ *    options.stealthMode - מצב stealth לעקיפת זיהוי bots (ברירת מחדל: false)
  * @returns {Promise<Object>}
  */
 async function captureScreenshot(url, options = {}) {
@@ -43,9 +61,28 @@ async function captureScreenshot(url, options = {}) {
     disableJavaScript = false,
     blockPopups = true,
     ignoreHTTPSErrors = true,
+    useProxy = false,
+    stealthMode = false,
   } = options;
 
-  const { page, context, id } = await browserPool.getPage();
+  const proxyConfig = useProxy ? getRandomProxy() : null;
+  console.log(`🔄 Using proxy: ${proxyConfig ? proxyConfig.server : 'None'}`);
+
+  const contextOptions = {
+    viewport: { width: parseInt(width), height: parseInt(height) },
+    deviceScaleFactor,
+    isMobile,
+    hasTouch,
+    ignoreHTTPSErrors,
+  };
+
+  if (proxyConfig) {
+    contextOptions.proxy = proxyConfig;
+  }
+
+  const { browser } = await browserPool.getPage();
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
 
   try {
     // הגדרת viewport
@@ -53,6 +90,25 @@ async function captureScreenshot(url, options = {}) {
       width: parseInt(width),
       height: parseInt(height),
     });
+
+    // Stealth mode
+    if (stealthMode || useProxy) {
+      await page.addInitScript(() => {
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        delete navigator.__proto__.webdriver;
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+      });
+
+      await page.setExtraHTTPHeaders({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"'
+      });
+    }
 
     // חסימת משאבים "כבדים" (אופציונלי, טוב לאימיילים)
     if (blockPopups) {
@@ -77,6 +133,20 @@ async function captureScreenshot(url, options = {}) {
       await page.waitForLoadState(chosenWaitUntil);
     } else {
       throw new Error('Either url or options.html must be provided');
+    }
+
+    // התנהגות אנושית אם זה stealth mode
+    if (stealthMode || useProxy) {
+      // תנועת עכבר רנדומלית
+      await page.mouse.move(Math.random() * 100, Math.random() * 100);
+      
+      // המתנה רנדומלית
+      await page.waitForTimeout(Math.random() * 2000 + 500);
+      
+      // גלילה קלה
+      await page.evaluate(() => {
+        window.scrollTo(0, Math.random() * 300);
+      });
     }
 
     // אפשרויות צילום
@@ -121,6 +191,7 @@ async function captureScreenshot(url, options = {}) {
             selector,
             screenshot: `data:image/${screenshotOptions.type};base64,${elementShot.toString('base64')}`,
             filePath,
+            usedProxy: proxyConfig ? proxyConfig.server : null,
           };
         }
       } catch (e) {
@@ -171,12 +242,13 @@ async function captureScreenshot(url, options = {}) {
       fullPage,
       screenshot: `data:image/${screenshotOptions.type};base64,${screenshot.toString('base64')}`,
       filePath,
+      usedProxy: proxyConfig ? proxyConfig.server : null,
     };
   } catch (error) {
     console.error(`❌ Error capturing screenshot for ${url || '[inline-html]'}:`, error);
     throw error;
   } finally {
-    await browserPool.releasePage(id);
+    await context.close();
   }
 }
 
