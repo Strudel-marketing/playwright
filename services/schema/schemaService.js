@@ -18,10 +18,10 @@ async function extractSchema(url, options = {}) {
     const { page, context, id } = await browserPool.getPage();
     
     try {
-        await page.goto(url, { 
-            waitUntil: 'networkidle',
-            timeout: 30000
-        });
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    } catch {
+      await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+    }
         
         // חילוץ סכמות JSON-LD
         const jsonldSchemas = await page.evaluate(() => {
