@@ -19,10 +19,10 @@ async function extractSchema(url, options = {}) {
     
     try {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    } catch {
+    } catch (error) {
       await page.goto(url, { waitUntil: 'load', timeout: 60000 });
     }
-        
+ 
         // חילוץ סכמות JSON-LD
         const jsonldSchemas = await page.evaluate(() => {
             const schemas = [];
