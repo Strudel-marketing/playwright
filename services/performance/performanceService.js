@@ -106,6 +106,7 @@ async function runLighthouseAnalysis(url, options = {}) {
         --output-path="${outputFile}" \
         --chrome-flags="${chromeFlags}" \
         --quiet \
+        --max-wait-for-load=45000
         ${categoriesFlag}`;
     
     // Add Chrome path if available
@@ -118,7 +119,7 @@ async function runLighthouseAnalysis(url, options = {}) {
     
     // Execute lighthouse CLI
     const { stdout, stderr } = await execAsync(command, { 
-        timeout: 90000, // 90 second timeout
+        timeout: 180000, // 180 second timeout
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer
         env: { 
             ...process.env, 
