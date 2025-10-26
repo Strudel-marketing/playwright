@@ -487,7 +487,7 @@ function calculateSeoScore(results) {
 async function captureScreenshot(page) {
   try {
     const screenshot = await page.screenshot({
-      fullPage: true,
+      fullPage: false, // Capture only the viewport (above the fold)
       type: 'jpeg',
       quality: 80
     });
