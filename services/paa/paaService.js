@@ -1,4 +1,4 @@
-const { chromium } = require('playwright');
+const browserPool = require('../../utils/browserPool');
 
 // Rate limiting map
 const lastPAARequest = new Map();
@@ -25,29 +25,10 @@ async function extractPAAQuestions(query, clientIP) {
 
     console.log(`🔍 PAA Search for: "${query}" from IP: ${clientIP}`);
 
-    // Launch browser with stealth configuration
-    const browser = await chromium.launch({
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-dev-shm-usage',
-            '--no-first-run',
-            '--disable-extensions',
-            '--disable-default-apps',
-            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        ]
-    });
-
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        viewport: { width: 1366, height: 768 },
+    // ✅ FIXED: Use browserPool instead of creating own browser
+    const { page, context, safeNavigate } = await browserPool.acquire({
         locale: 'he-IL',
         timezoneId: 'Asia/Jerusalem',
-        permissions: [],
         extraHTTPHeaders: {
             'Accept-Language': 'he-IL,he;q=0.9,en;q=0.8',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -57,46 +38,12 @@ async function extractPAAQuestions(query, clientIP) {
         }
     });
 
-    const page = await context.newPage();
-
-    // Anti-detection scripts
-    await page.addInitScript(() => {
-        // Hide webdriver property
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined,
-        });
-
-        // Mock chrome object
-        window.chrome = {
-            runtime: {},
-        };
-
-        // Mock permissions
-        const originalQuery = window.navigator.permissions.query;
-        window.navigator.permissions.query = (parameters) => (
-            parameters.name === 'notifications' ?
-                Promise.resolve({ state: Notification.permission }) :
-                originalQuery(parameters)
-        );
-
-        // Plugin count
-        Object.defineProperty(navigator, 'plugins', {
-            get: () => [1, 2, 3, 4, 5],
-        });
-
-        // Languages
-        Object.defineProperty(navigator, 'languages', {
-            get: () => ['he-IL', 'he', 'en-US', 'en'],
-        });
-    });
-
     try {
-        // Random delay before navigation
-        await delay(Math.random() * 2000 + 1000);
-
-        // Navigate to Google search
+        // Navigate to Google search using safeNavigate
         const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&hl=he&gl=IL`;
-        await page.goto(searchUrl, {
+        
+        // ✅ FIXED: Use safeNavigate (with built-in delays and rate limiting)
+        await safeNavigate(searchUrl, {
             waitUntil: 'domcontentloaded',
             timeout: 15000
         });
@@ -177,8 +124,6 @@ async function extractPAAQuestions(query, clientIP) {
             }
         }
 
-        await browser.close();
-
         return {
             success: true,
             query: query,
@@ -190,8 +135,10 @@ async function extractPAAQuestions(query, clientIP) {
         };
 
     } catch (error) {
-        await browser.close();
         throw error;
+    } finally {
+        // ✅ FIXED: Use releasePageObject to properly clean up
+        await browserPool.releasePageObject({ page, context });
     }
 }
 
@@ -199,6 +146,7 @@ async function extractPAAQuestions(query, clientIP) {
  * Extract PAA questions from Bing search
  * @param {string} query - Search query
  * @param {string} clientIP - Client IP for rate limiting
+ * @param {boolean} debug - Enable debug mode
  * @returns {Object} PAA results from Bing
  */
 async function extractBingPAAQuestions(query, clientIP, debug = false) {
@@ -214,31 +162,18 @@ async function extractBingPAAQuestions(query, clientIP, debug = false) {
 
     console.log(`🔍 Bing PAA Search for: "${query}" from IP: ${clientIP}`);
 
-    const browser = await chromium.launch({
-        headless: !debug,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled',
-            '--disable-web-security',
-            '--disable-features=VizDisplayCompositor',
-            '--disable-dev-shm-usage'
-        ]
-    });
-
-    const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        viewport: { width: 1366, height: 768 },
+    // ✅ FIXED: Use browserPool instead of creating own browser
+    const { page, context, safeNavigate } = await browserPool.acquire({
         locale: 'he-IL',
         timezoneId: 'Asia/Jerusalem'
     });
 
-    const page = await context.newPage();
-
     try {
-        // Navigate to Bing search
+        // Navigate to Bing search using safeNavigate
         const searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(query)}&setlang=he&cc=IL`;
-        await page.goto(searchUrl, {
+        
+        // ✅ FIXED: Use safeNavigate (with built-in delays and rate limiting)
+        await safeNavigate(searchUrl, {
             waitUntil: 'domcontentloaded',
             timeout: 15000
         });
@@ -289,8 +224,6 @@ async function extractBingPAAQuestions(query, clientIP, debug = false) {
 
         console.log(`✅ Found ${paaQuestions.length} Bing PAA questions for "${query}"`);
 
-        await browser.close();
-
         return {
             success: true,
             query: query,
@@ -303,8 +236,10 @@ async function extractBingPAAQuestions(query, clientIP, debug = false) {
         };
 
     } catch (error) {
-        await browser.close();
         throw error;
+    } finally {
+        // ✅ FIXED: Use releasePageObject to properly clean up
+        await browserPool.releasePageObject({ page, context });
     }
 }
 
@@ -322,7 +257,8 @@ function getPAAStatus() {
             'bing-paa-extraction',
             'rate-limiting',
             'anti-detection',
-            'hebrew-support'
+            'hebrew-support',
+            'browser-pool-integration'
         ],
         rateLimits: {
             google: '30 seconds between requests',
