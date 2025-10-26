@@ -41,7 +41,9 @@ async function performSeoAudit(url, options = {}) {
   } = options;
 
   const startTime = Date.now();
-  const { page, context, id } = await browserPool.getPage();
+  
+  // ✅ FIXED: Use acquire() to get safeNavigate
+  const { page, context, safeNavigate } = await browserPool.acquire();
 
   try {
     // חסימת משאבים "רעשניים"
@@ -65,14 +67,14 @@ async function performSeoAudit(url, options = {}) {
 
     const navigationStart = Date.now();
 
-    // ניווט עם fallback
+    // ✅ FIXED: Use safeNavigate instead of page.goto
     let response;
     try {
-      response = await page.goto(url, { waitUntil, timeout });
+      response = await safeNavigate(url, { waitUntil, timeout });
     } catch (err) {
       if (waitUntil === 'networkidle') {
         console.warn('⚠️ networkidle timed out — retrying with domcontentloaded');
-        response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: Math.max(timeout, 45000) });
+        response = await safeNavigate(url, { waitUntil: 'domcontentloaded', timeout: Math.max(timeout, 45000) });
       } else {
         throw err;
       }
@@ -160,7 +162,8 @@ async function performSeoAudit(url, options = {}) {
     console.error(`❌ Error during SEO audit for ${url}:`, error);
     throw error;
   } finally {
-    await browserPool.releasePage(id);
+    // ✅ FIXED: Use releasePageObject to properly clean up
+    await browserPool.releasePageObject({ page, context });
   }
 }
 
