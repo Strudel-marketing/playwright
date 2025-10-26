@@ -369,6 +369,233 @@ curl -X POST https://playwright.strudel.marketing/api/automation/execute \
 
 ---
 
+## 🧠 Knowledge Graph - `/api/knowledge`
+
+### POST /api/knowledge/analyze - ניתוח Knowledge Graph
+
+**מטרה:** חילוץ מילות מפתח סמנטיות, ישויות ומושגים קשורים מ-URL, טקסט או רשימת מילות מפתח
+
+**שדות חובה:** אחד מהבאים נדרש: `url` (string), `text` (string), או `keywords` (array)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `language` (string, default: 'en') - שפה לניתוח ('en', 'he')
+- `includeWikidata` (boolean, default: true) - כלול נתוני Wikidata
+- `limit` (number, default: 5) - מספר תוצאות מקסימלי לכל מילת מפתח
+- `waitUntil` (string) - אירוע המתנה לטעינת דף (כאשר משתמשים ב-URL)
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם URL:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/knowledge/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/interior-design-article",
+    "options": {
+      "language": "en",
+      "includeWikidata": true,
+      "limit": 5,
+      "timeout": 60000
+    }
+  }'
+```
+
+**דוגמת curl עם מילות מפתח:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/knowledge/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keywords": ["interior design", "modern furniture", "minimalist style"],
+    "options": {
+      "language": "en",
+      "includeWikidata": true,
+      "limit": 10
+    }
+  }'
+```
+
+**דוגמת curl עם טקסט:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/knowledge/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "עיצוב פנים מודרני משלב פונקציונליות עם אסתטיקה מינימליסטית",
+    "options": {
+      "language": "he",
+      "includeWikidata": true,
+      "limit": 5
+    }
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "url": "https://example.com/interior-design-article",
+  "text": null,
+  "analyzedKeywords": [
+    "interior design",
+    "modern furniture",
+    "minimalist",
+    "space planning"
+  ],
+  "knowledgeGraph": {
+    "queries": ["interior design", "modern furniture", "minimalist", "space planning"],
+    "google": [
+      {
+        "keyword": "interior design",
+        "title": "Interior design",
+        "description": "Interior design is the art and science of enhancing the interior of a building to achieve a healthier and more aesthetically pleasing environment",
+        "url": "https://www.google.com/search?kgmid=/m/03h9v",
+        "imageUrl": "https://example.com/image.jpg",
+        "types": ["Thing", "Intangible", "Profession"]
+      }
+    ],
+    "wikidata": [
+      {
+        "id": "Q7864353",
+        "label": "interior design",
+        "description": "art and science of enhancing the interior of a building",
+        "url": "https://www.wikidata.org/wiki/Q7864353",
+        "aliases": ["interior decoration", "interior architecture"]
+      }
+    ],
+    "entities": [
+      {
+        "name": "Interior design",
+        "id": "Q7864353",
+        "types": ["Profession", "Art"],
+        "description": "art and science of enhancing interiors",
+        "url": "https://www.wikidata.org/wiki/Q7864353"
+      }
+    ],
+    "semantic_keywords": [
+      "space planning",
+      "color theory",
+      "furniture design",
+      "architectural design",
+      "ergonomic design"
+    ],
+    "related_terms": [
+      "home decoration",
+      "interior architecture",
+      "spatial design",
+      "furniture arrangement",
+      "color schemes"
+    ],
+    "used_advertools": true
+  },
+  "timestamp": "2025-01-22T10:30:00.000Z"
+}
+```
+
+---
+
+### POST /api/knowledge/brief - יצירת בריף תוכן
+
+**מטרה:** יצירת בריף תוכן אוטומטי מבוסס Knowledge Graph עם המלצות לכותרות, שאלות FAQ וישויות מרכזיות
+
+**שדות חובה:** אחד מהבאים נדרש: `url` (string), `text` (string), או `keywords` (array)
+**שדות אופציונליים:** `options` (object)
+
+**אפשרויות זמינות ב-options:**
+- `language` (string, default: 'he') - שפה לניתוח ('en', 'he')
+- `includeWikidata` (boolean, default: true) - כלול נתוני Wikidata
+- `limit` (number, default: 5) - מספר תוצאות מקסימלי
+- `waitUntil` (string) - אירוע המתנה לטעינת דף
+- `timeout` (number) - זמן timeout
+
+**דוגמת curl עם URL:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/knowledge/brief \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/article",
+    "options": {
+      "language": "he",
+      "includeWikidata": true,
+      "limit": 5
+    }
+  }'
+```
+
+**דוגמת curl עם מילות מפתח:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/knowledge/brief \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keywords": ["עיצוב פנים", "רהיטים מודרניים", "סגנון מינימליסטי"],
+    "options": {
+      "language": "he",
+      "includeWikidata": true
+    }
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "analyzedKeywords": [
+    "עיצוב פנים",
+    "רהיטים מודרניים",
+    "סגנון מינימליסטי"
+  ],
+  "brief": {
+    "focus_entities": [
+      "עיצוב פנים",
+      "רהיטים מודרניים",
+      "סגנון מינימליסטי"
+    ],
+    "suggested_h2": [
+      "תכנון מרחב יעיל",
+      "תורת הצבעים בעיצוב",
+      "בחירת רהיטים מתאימים",
+      "עקרונות תאורה בעיצוב",
+      "אלמנטים דקורטיביים מינימליסטיים",
+      "ארגונומיה ונוחות"
+    ],
+    "faqs": [
+      "מה זה עיצוב פנים?",
+      "מה זה רהיטים מודרניים?",
+      "מה זה סגנון מינימליסטי?",
+      "מה זה תכנון מרחב?",
+      "מה זה תורת הצבעים?"
+    ],
+    "references": [
+      "https://www.wikidata.org/wiki/Q7864353",
+      "https://www.wikidata.org/wiki/Q furniture123",
+      "https://www.google.com/search?kgmid=/m/03h9v"
+    ]
+  },
+  "knowledgeGraph": {
+    "queries": ["עיצוב פנים", "רהיטים מודרניים", "סגנון מינימליסטי"],
+    "google": [...],
+    "wikidata": [...],
+    "entities": [...],
+    "semantic_keywords": [...],
+    "related_terms": [...],
+    "used_advertools": true
+  },
+  "timestamp": "2025-01-22T10:30:00.000Z"
+}
+```
+
+**שימושים מומלצים לבריף:**
+- **focus_entities** - הישויות המרכזיות שכדאי להתמקד בהן בתוכן
+- **suggested_h2** - כותרות H2 מוצעות למאמר (2-4 מילים, רלוונטיות לנושא)
+- **faqs** - שאלות FAQ מוצעות (פורמט "מה זה...?")
+- **references** - קישורים למקורות חיצוניים (Wikidata, Google Knowledge Graph)
+
+**טיפים לשימוש:**
+1. השתמש ב-`language: 'he'` לתוכן בעברית
+2. הגדל את `limit` לקבלת יותר המלצות למילות מפתח
+3. השתמש ב-`url` לניתוח דף קיים, או `keywords` לתכנון תוכן חדש
+4. ה-FAQs אוטומטיות מתאימות למימוש ב-Schema.org FAQPage
+
+---
+
 ## 📸 Screenshots - `/api/screenshot`
 
 ### POST /api/screenshot/capture - צילום יחיד
