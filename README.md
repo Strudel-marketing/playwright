@@ -51,6 +51,15 @@
 - **Data Workflows** - Multi-step automation sequences
 - **Custom Extractors** - Site-specific data extraction
 
+### 🧠 **Knowledge Graph Analysis**
+- **Semantic Keyword Research** - Extract semantic keywords using Google Knowledge Graph API
+- **Entity Recognition** - Identify key entities and topics from URLs or text
+- **Content Briefs** - Generate SEO-optimized content briefs automatically
+- **Related Topics** - Discover related terms and concepts
+- **FAQ Generation** - Auto-generate relevant questions from content
+- **Multi-Language Support** - Hebrew and English support
+- **Wikidata Integration** - Enhanced entity data from Wikidata
+
 ## 🚀 Quick Start
 
 ### Docker Deployment (Recommended)
@@ -199,6 +208,30 @@ POST /api/universal/{site}/{action}
 }
 ```
 
+### 🧠 Knowledge Graph Analysis
+```bash
+POST /api/knowledge/analyze
+{
+  "url": "https://example.com",
+  "keywords": ["interior design", "modern"],
+  "options": {
+    "language": "en",
+    "includeWikidata": true,
+    "limit": 5
+  }
+}
+```
+
+```bash
+POST /api/knowledge/brief
+{
+  "url": "https://example.com",
+  "options": {
+    "language": "he"
+  }
+}
+```
+
 ## 💡 Detailed Usage Examples
 
 ### Complete SEO Audit with Analysis
@@ -266,6 +299,46 @@ curl -X POST http://localhost:3000/api/extract/schema \
   }' | jq '.data'
 ```
 
+### Knowledge Graph Analysis from URL
+```bash
+curl -X POST http://localhost:3000/api/knowledge/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-website.com/article",
+    "options": {
+      "language": "en",
+      "includeWikidata": true,
+      "limit": 5
+    }
+  }'
+```
+
+### Generate Content Brief
+```bash
+curl -X POST http://localhost:3000/api/knowledge/brief \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-website.com/article",
+    "options": {
+      "language": "he"
+    }
+  }'
+```
+
+### Knowledge Analysis from Keywords
+```bash
+curl -X POST http://localhost:3000/api/knowledge/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "keywords": ["interior design", "modern furniture", "minimalist"],
+    "options": {
+      "language": "en",
+      "includeWikidata": true,
+      "limit": 10
+    }
+  }'
+```
+
 ## 📊 Response Examples
 
 ### Screenshot Upload Response
@@ -301,6 +374,86 @@ curl -X POST http://localhost:3000/api/extract/schema \
     }
   ],
   "total": 1
+}
+```
+
+### Knowledge Graph Analysis Response
+```json
+{
+  "success": true,
+  "url": "https://example.com/article",
+  "analyzedKeywords": ["interior design", "modern furniture", "minimalist"],
+  "knowledgeGraph": {
+    "queries": ["interior design", "modern furniture", "minimalist"],
+    "google": [
+      {
+        "keyword": "interior design",
+        "title": "Interior design",
+        "description": "Interior design is the art and science of enhancing the interior of a building...",
+        "url": "https://www.google.com/search?kgmid=/m/03h9v"
+      }
+    ],
+    "wikidata": [
+      {
+        "id": "Q7864353",
+        "label": "interior design",
+        "description": "art and science of enhancing the interior of a building"
+      }
+    ],
+    "entities": [
+      {
+        "name": "Interior design",
+        "types": ["Profession"],
+        "description": "art and science of enhancing interiors"
+      }
+    ],
+    "semantic_keywords": [
+      "space planning",
+      "color theory",
+      "furniture design",
+      "architectural design"
+    ],
+    "related_terms": [
+      "home decoration",
+      "interior architecture",
+      "spatial design"
+    ],
+    "used_advertools": true
+  },
+  "timestamp": "2025-01-22T10:30:00.000Z"
+}
+```
+
+### Content Brief Response
+```json
+{
+  "success": true,
+  "analyzedKeywords": ["interior design", "modern furniture"],
+  "brief": {
+    "focus_entities": [
+      "Interior design",
+      "Modern furniture",
+      "Minimalist design"
+    ],
+    "suggested_h2": [
+      "space planning techniques",
+      "color theory basics",
+      "furniture selection guide",
+      "lighting design principles"
+    ],
+    "faqs": [
+      "מה זה interior design?",
+      "מה זה modern furniture?",
+      "מה זה minimalist design?",
+      "מה זה space planning?"
+    ],
+    "references": [
+      "https://www.wikidata.org/wiki/Q7864353",
+      "https://www.wikidata.org/wiki/Q furniture123"
+    ]
+  },
+  "knowledgeGraph": { /* full knowledge graph data */ },
+  "timestamp": "2025-01-22T10:30:00.000Z"
 }
 ```
 
@@ -402,6 +555,14 @@ curl -X POST http://localhost:3000/api/extract/schema \
 - **Citation Consistency** - Verify business information across sites
 - **Mobile Optimization** - Ensure mobile-friendly implementation
 
+### ✍️ **Content Creation & SEO**
+- **Semantic Keyword Research** - Discover related terms and topics using Knowledge Graph
+- **Content Brief Generation** - Auto-generate SEO-optimized content briefs
+- **Entity Optimization** - Identify and optimize for key entities
+- **FAQ Generation** - Create relevant questions from content analysis
+- **Topic Clustering** - Find related topics for comprehensive content
+- **Multilingual Content** - Support for Hebrew and English content analysis
+
 ## 🛠️ Advanced Configuration
 
 ### Environment Variables
@@ -412,7 +573,10 @@ BROWSER_TIMEOUT=30000
 MAX_CONCURRENT_PAGES=5
 SCREENSHOT_QUALITY=90
 UPLOAD_MAX_SIZE=10485760
+GOOGLE_API_KEY=your-google-api-key-here
 ```
+
+**Note**: The `GOOGLE_API_KEY` is required for Knowledge Graph analysis features. Get your API key from [Google Cloud Console](https://console.cloud.google.com/) and enable the Knowledge Graph Search API.
 
 ### Docker Configuration with Volume Mapping
 ```dockerfile
