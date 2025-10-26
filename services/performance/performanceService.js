@@ -64,6 +64,45 @@ async function checkLighthouseAvailability() {
 checkLighthouseAvailability();
 
 /**
+ * Clean up Chrome/Lighthouse processes
+ * Prevents process accumulation and EAGAIN errors
+ */
+async function cleanupChromeProcesses() {
+    try {
+        console.log('🧹 Cleaning up Chrome/Lighthouse processes...');
+        
+        // Kill Chrome processes
+        await execAsync('pkill -9 chrome 2>/dev/null || true');
+        await execAsync('pkill -9 chromium 2>/dev/null || true');
+        await execAsync('pkill -9 lighthouse 2>/dev/null || true');
+        await execAsync('pkill -9 headless_shell 2>/dev/null || true');
+        
+        // Small delay to ensure processes are killed
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        console.log('✅ Chrome cleanup completed');
+    } catch (error) {
+        console.warn('⚠️ Chrome cleanup warning:', error.message);
+        // Don't throw - cleanup errors shouldn't fail the request
+    }
+}
+
+/**
+ * Clean up temporary files
+ * @param {string} outputFile - Path to temp file
+ */
+async function cleanupTempFile(outputFile) {
+    if (outputFile && fs.existsSync(outputFile)) {
+        try {
+            fs.unlinkSync(outputFile);
+            console.log('🗑️ Temp file cleaned:', outputFile);
+        } catch (error) {
+            console.warn('⚠️ Failed to clean temp file:', error.message);
+        }
+    }
+}
+
+/**
  * Runs Lighthouse performance analysis on a given URL
  * @param {string} url - The URL to analyze
  * @param {Object} options - Optional configuration options
@@ -83,22 +122,29 @@ async function runLighthouseAnalysis(url, options = {}) {
     };
   }
 
+  let outputFile = null;
+  
   try {
     // Create temporary output file
-    const outputFile = path.join('/tmp', `lighthouse-perf-${Date.now()}.json`);
+    outputFile = path.join('/tmp', `lighthouse-perf-${Date.now()}.json`);
     
     // Build lighthouse CLI command
     const categories = options.categories || ['performance'];
     const categoriesFlag = categories.map(cat => `--only-categories=${cat}`).join(' ');
     
-    // Build Chrome flags
+    // Build Chrome flags - optimized for server environment
     const chromeFlags = [
         '--headless',
         '--no-sandbox', 
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-first-run',
-        '--disable-extensions'
+        '--disable-extensions',
+        '--disable-background-networking',
+        '--disable-default-apps',
+        '--disable-sync',
+        '--no-zygote',  // Reduces process count
+        '--single-process'  // Use single process mode to reduce RAM
     ].join(' ');
     
     let command = `npx lighthouse "${url}" \
@@ -106,7 +152,7 @@ async function runLighthouseAnalysis(url, options = {}) {
         --output-path="${outputFile}" \
         --chrome-flags="${chromeFlags}" \
         --quiet \
-        --max-wait-for-load=45000
+        --max-wait-for-load=45000 \
         ${categoriesFlag}`;
     
     // Add Chrome path if available
@@ -133,9 +179,6 @@ async function runLighthouseAnalysis(url, options = {}) {
     }
 
     const lighthouseResult = JSON.parse(fs.readFileSync(outputFile, 'utf8'));
-    
-    // Clean up temporary file
-    fs.unlinkSync(outputFile);
 
     // Extract key metrics from lighthouse result
     const { categories: lhrCategories, audits } = lighthouseResult;
@@ -183,6 +226,16 @@ async function runLighthouseAnalysis(url, options = {}) {
       error: `Performance analysis failed: ${error.message}`,
       url
     };
+  } finally {
+    // 🧹 CRITICAL: Always cleanup, even if there was an error
+    
+    // Clean up temp file
+    await cleanupTempFile(outputFile);
+    
+    // Kill Chrome processes
+    await cleanupChromeProcesses();
+    
+    console.log('🔄 Lighthouse cleanup completed for:', url);
   }
 }
 
