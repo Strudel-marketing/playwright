@@ -10,7 +10,8 @@ const crypto = require('crypto');
  *    options.html - מחרוזת HTML לטעינה ישירה (page.setContent)
  *    options.waitUntil - 'networkidle' או 'domcontentloaded' (ברירת מחדל: ל-HTML domcontentloaded, ל-URL networkidle)
  *    options.disableJavaScript - ביטול JS בדף (ברירת מחדל: false)
- *    options.blockPopups - חסימת media/fonts וכו' (ברירת מחדל: true)
+ *    options.blockPopups - חסימת popups/dialogs (ברירת מחדל: true)
+ *    options.blockMedia - חסימת media/fonts וכו' (ברירת מחדל: false)
  *    options.ignoreHTTPSErrors - התעלמות משגיאות HTTPS (ברירת מחדל: true)
  *    options.stealthMode - מצב stealth לעקיפת זיהוי bots (ברירת מחדל: false)
  * @returns {Promise<Object>}
@@ -37,6 +38,7 @@ async function captureScreenshot(url, options = {}) {
     html = null,
     disableJavaScript = false,
     blockPopups = true,
+    blockMedia = false,
     ignoreHTTPSErrors = true,
     stealthMode = false,
   } = options;
@@ -49,6 +51,35 @@ async function captureScreenshot(url, options = {}) {
       width: parseInt(width),
       height: parseInt(height),
     });
+
+    // 🚫 חסימת פופאפים וdialogs אוטומטית
+    if (blockPopups) {
+      console.log('🚫 Blocking popups and dialogs');
+      
+      // חסימת כל סוגי הdialogs
+      page.on('dialog', async dialog => {
+        console.log(`🚫 Blocked dialog: ${dialog.type()} - "${dialog.message()}"`);
+        await dialog.dismiss();
+      });
+
+      // חסימת window.open (פופאפים חדשים)
+      await page.addInitScript(() => {
+        window.open = () => null;
+      });
+
+      // חסימת כפתורי close שמפעילים overlay
+      await page.addInitScript(() => {
+        // חסימת event listeners על document שיכולים לפתוח popups
+        const originalAddEventListener = EventTarget.prototype.addEventListener;
+        EventTarget.prototype.addEventListener = function(type, listener, options) {
+          if (type === 'click' || type === 'mousedown') {
+            // אל תוסיף listeners שעשויים לפתוח popups
+            return;
+          }
+          return originalAddEventListener.call(this, type, listener, options);
+        };
+      });
+    }
 
     // Stealth mode - הוסף headers מציאותיים והסתר automation
     if (stealthMode) {
@@ -81,11 +112,15 @@ async function captureScreenshot(url, options = {}) {
       });
     }
 
-    // חסימת משאבים "כבדים" (אופציונלי, טוב לאימיילים)
-    if (blockPopups) {
+    // חסימת משאבים "כבדים" (אופציונלי, טוב לביצועים)
+    if (blockMedia) {
+      console.log('🚫 Blocking heavy resources (media, fonts)');
       await page.route('**/*', (route) => {
         const type = route.request().resourceType();
-        if (['media', 'font'].includes(type)) return route.abort();
+        if (['media', 'font'].includes(type)) {
+          console.log(`🚫 Blocked: ${type} - ${route.request().url()}`);
+          return route.abort();
+        }
         return route.continue();
       });
     }
@@ -97,13 +132,63 @@ async function captureScreenshot(url, options = {}) {
 
     // טעינת תוכן
     if (html && !url) {
+      console.log('📄 Loading inline HTML content');
       await page.setContent(html, { waitUntil: chosenWaitUntil, timeout: navTimeout });
     } else if (url) {
-      // אם זה data: html — תשאיר chosenWaitUntil (domcontentloaded)
-      await page.goto(url, { waitUntil: chosenWaitUntil, timeout: navTimeout });
-      await page.waitForLoadState(chosenWaitUntil);
+      // ✅ שימוש ב-safeNavigate במקום page.goto
+      console.log(`🌐 Navigating to: ${url}`);
+      await browserPool.safeNavigate(page, url, {
+        waitUntil: chosenWaitUntil,
+        timeout: navTimeout
+      });
     } else {
       throw new Error('Either url or options.html must be provided');
+    }
+
+    // המתנה נוספת לוודא שהעמוד נטען במלואו
+    await page.waitForLoadState(chosenWaitUntil);
+
+    // 🧹 ניקוי פופאפים שכבר נפתחו (אם blockPopups מופעל)
+    if (blockPopups) {
+      try {
+        // סגור כל modal/overlay/popup שיכול להיות בדף
+        await page.evaluate(() => {
+          // מצא ותסגור modals נפוצים
+          const popupSelectors = [
+            '[class*="modal"]',
+            '[class*="popup"]',
+            '[class*="overlay"]',
+            '[id*="modal"]',
+            '[id*="popup"]',
+            '[role="dialog"]',
+            '.cookie-banner',
+            '.newsletter-popup',
+            '[class*="cookie"]'
+          ];
+
+          popupSelectors.forEach(selector => {
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(el => {
+              if (el && el.style) {
+                el.style.display = 'none';
+                el.remove();
+              }
+            });
+          });
+
+          // הסר overlay backgrounds
+          const overlays = document.querySelectorAll('[class*="overlay"], [style*="fixed"]');
+          overlays.forEach(el => {
+            const style = window.getComputedStyle(el);
+            if (style.position === 'fixed' && style.zIndex > 100) {
+              el.remove();
+            }
+          });
+        });
+        console.log('🧹 Cleaned up page popups/overlays');
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to cleanup popups:', cleanupError.message);
+      }
     }
 
     // התנהגות אנושית אם זה stealth mode
@@ -163,6 +248,7 @@ async function captureScreenshot(url, options = {}) {
             screenshot: `data:image/${screenshotOptions.type};base64,${elementShot.toString('base64')}`,
             filePath,
             stealthMode,
+            popupsBlocked: blockPopups,
           };
         }
       } catch (e) {
@@ -214,6 +300,7 @@ async function captureScreenshot(url, options = {}) {
       screenshot: `data:image/${screenshotOptions.type};base64,${screenshot.toString('base64')}`,
       filePath,
       stealthMode,
+      popupsBlocked: blockPopups,
     };
   } catch (error) {
     console.error(`❌ Error capturing screenshot for ${url || '[inline-html]'}:`, error);
