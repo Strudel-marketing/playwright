@@ -15,15 +15,16 @@ const browserPool = require('../../utils/browserPool');
 async function extractSchema(url, options = {}) {
   console.log(`🔍 Extracting schema from: ${url}`);
 
-  const { page, context, id } = await browserPool.getPage();
+  // ✅ FIXED: Use acquire() to get safeNavigate
+  const { page, context, safeNavigate } = await browserPool.acquire();
 
   try {
-    // טעינה בטוחה של הדף עם fallback
+    // ✅ FIXED: Use safeNavigate instead of page.goto
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await safeNavigate(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
     } catch (error) {
       console.warn('⚠️ Primary load failed, retrying with load event...');
-      await page.goto(url, { waitUntil: 'load', timeout: 60000 });
+      await safeNavigate(url, { waitUntil: 'load', timeout: 60000 });
     }
 
     // חילוץ סכמות JSON-LD
@@ -244,7 +245,8 @@ async function extractSchema(url, options = {}) {
     console.error(`❌ Error extracting schema from ${url}:`, error);
     throw error;
   } finally {
-    await browserPool.releasePage(id);
+    // ✅ FIXED: Use releasePageObject to properly clean up
+    await browserPool.releasePageObject({ page, context });
   }
 }
 
@@ -256,10 +258,12 @@ async function extractSchema(url, options = {}) {
 async function quickCheck(url) {
   console.log(`⚡ Quick schema check for: ${url}`);
 
-  const { page, context, id } = await browserPool.getPage();
+  // ✅ FIXED: Use acquire() to get safeNavigate
+  const { page, context, safeNavigate } = await browserPool.acquire();
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    // ✅ FIXED: Use safeNavigate instead of page.goto
+    await safeNavigate(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
     const quickResults = await page.evaluate(() => {
       const jsonldElements = document.querySelectorAll('script[type="application/ld+json"]');
@@ -308,7 +312,8 @@ async function quickCheck(url) {
     console.error(`❌ Error during quick schema check for ${url}:`, error);
     throw error;
   } finally {
-    await browserPool.releasePage(id);
+    // ✅ FIXED: Use releasePageObject to properly clean up
+    await browserPool.releasePageObject({ page, context });
   }
 }
 
