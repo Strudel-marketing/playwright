@@ -872,69 +872,193 @@ curl -X POST https://playwright.strudel.marketing/api/compare/advanced \
 
 ## 🚀 Performance - `/api/performance`
 
-### POST /api/performance/lighthouse - ניתוח Lighthouse בסיסי
+**⭐ חשוב:** השירות עודכן להשתמש ב-Google PageSpeed Insights API הרשמי!
+- תוצאות מדויקות זהות לממשק של Google
+- כולל נתונים אמיתיים של משתמשים (Field Data) מ-Chrome UX Report
+- מגבלה יומית: 10,000 בדיקות (להגן על ה-quota)
+
+---
+
+### POST /api/performance/pagespeed - ניתוח PageSpeed Insights (מומלץ!)
 
 **שדות חובה:** `url` (string)
 **שדות אופציונליים:** `options` (object)
 
 **אפשרויות זמינות ב-options:**
+- `strategy` (string) - 'mobile' או 'desktop' (ברירת מחדל: 'mobile')
+- `device` (string) - שם חלופי ל-strategy
 - `categories` (array) - קטגוריות לבדיקה: ['performance', 'accessibility', 'best-practices', 'seo', 'pwa']
-- `device` (string) - 'desktop' או 'mobile'
-- `throttling` (boolean) - הגבלת רשת
-- `onlyCategories` (array) - רק קטגוריות ספציפיות
-- `skipAudits` (array) - דילוג על בדיקות ספציפיות
-- `locale` (string) - שפה לדוח
-
-**דוגמת curl עם כל האפשרויות:**
-```bash
-curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://teena.co.il",
-    "options": {
-      "categories": ["performance", "accessibility", "seo"],
-      "device": "mobile",
-      "throttling": true,
-      "locale": "he",
-      "skipAudits": ["unused-css-rules"]
-    }
-  }'
-```
-
-### POST /api/performance/lighthouse/full - ניתוח Lighthouse מלא
-
-**שדות חובה:** `url` (string)
-**שדות אופציונליים:** `options` (object) - זהות לבסיסי
+- `locale` (string) - שפה לדוח (למשל: 'he', 'en')
 
 **דוגמת curl:**
 ```bash
-curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse/full \
+curl -X POST https://playwright.strudel.marketing/api/performance/pagespeed \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
     "options": {
-      "device": "desktop",
-      "throttling": false,
+      "strategy": "mobile",
+      "categories": ["performance", "accessibility", "seo"],
       "locale": "he"
     }
   }'
 ```
 
-### POST /api/performance/lighthouse/performance - ניתוח ביצועים בלבד
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "source": "PageSpeed Insights API",
+  "url": "https://teena.co.il",
+  "strategy": "mobile",
+  "timestamp": "2025-11-06T10:30:00.000Z",
+  "labData": {
+    "scores": {
+      "performance": 72,
+      "accessibility": 89,
+      "bestPractices": 85,
+      "seo": 90
+    },
+    "metrics": {
+      "firstContentfulPaint": 2100,
+      "largestContentfulPaint": 4200,
+      "cumulativeLayoutShift": 0.12,
+      "speedIndex": 3100,
+      "totalBlockingTime": 280,
+      "timeToInteractive": 5800
+    },
+    "opportunities": [
+      {
+        "id": "unused-javascript",
+        "title": "Remove unused JavaScript",
+        "displayValue": "Potential savings of 1.2 s"
+      }
+    ]
+  },
+  "fieldData": {
+    "overallCategory": "AVERAGE",
+    "metrics": {
+      "LARGEST_CONTENTFUL_PAINT_MS": {
+        "percentile": 3500,
+        "category": "AVERAGE"
+      }
+    }
+  },
+  "rateLimitInfo": {
+    "remaining": 9847,
+    "used": 153,
+    "limit": 10000
+  }
+}
+```
 
-**שדות חובה:** `url` (string)
-**שדות אופציונליים:** `options` (object)
+---
 
-**דוגמת curl:**
+### POST /api/performance/pagespeed/performance - ביצועים בלבד
+
+**רק קטגוריית Performance - מהיר יותר**
+
 ```bash
-curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse/performance \
+curl -X POST https://playwright.strudel.marketing/api/performance/pagespeed/performance \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://teena.co.il",
     "options": {
-      "device": "mobile",
-      "throttling": true
+      "strategy": "mobile"
     }
+  }'
+```
+
+---
+
+### POST /api/performance/pagespeed/full - ניתוח מלא
+
+**כל הקטגוריות: performance, accessibility, best-practices, seo, pwa**
+
+```bash
+curl -X POST https://playwright.strudel.marketing/api/performance/pagespeed/full \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il",
+    "options": {
+      "strategy": "desktop",
+      "locale": "he"
+    }
+  }'
+```
+
+---
+
+### POST /api/performance/pagespeed/both - Mobile + Desktop
+
+**מריץ בדיקה גם למובייל וגם לדסקטופ בו-זמנית**
+
+```bash
+curl -X POST https://playwright.strudel.marketing/api/performance/pagespeed/both \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il"
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "url": "https://teena.co.il",
+  "mobile": {
+    "success": true,
+    "strategy": "mobile",
+    "labData": { "..." }
+  },
+  "desktop": {
+    "success": true,
+    "strategy": "desktop",
+    "labData": { "..." }
+  }
+}
+```
+
+---
+
+### GET /api/performance/quota - בדיקת מכסה
+
+**בדיקת סטטוס מכסת ה-API**
+
+```bash
+curl https://playwright.strudel.marketing/api/performance/quota
+```
+
+**תשובה:**
+```json
+{
+  "success": true,
+  "quota": {
+    "used": 153,
+    "remaining": 9847,
+    "limit": 10000,
+    "resetTime": 1699315200000,
+    "resetDate": "2025-11-07T00:00:00.000Z",
+    "utilizationPercent": 2
+  }
+}
+```
+
+---
+
+### POST /api/performance/lighthouse - Lighthouse מקומי (fallback)
+
+**⚠️ לא מומלץ - להשתמש רק אם אין API key**
+**התוצאות לא יהיו זהות לממשק של Google!**
+
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object)
+
+```bash
+curl -X POST https://playwright.strudel.marketing/api/performance/lighthouse \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://teena.co.il"
   }'
 ```
 
