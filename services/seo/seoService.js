@@ -6,6 +6,15 @@ const crypto = require('crypto');
 // ← חדש: ריצה של פייתון (Advertools) להוצאת ביטויים דומיננטיים
 const { analyzeTextKeywords } = require('./textKeywordsService');
 
+// ← חדש: מערכת המלצות מפורטות
+const {
+  buildRecommendation,
+  buildCategoryRecommendations,
+  generateActionPlan,
+  getSimpleIssue,
+  TYPES: REC
+} = require('./recommendationBuilder');
+
 // פולבק מהיר אם פייתון נופל (N-grams 2–4 בצד Node)
 function fallbackDominantPhrases(text = '', topN = 12) {
   try {
@@ -119,20 +128,21 @@ async function performSeoAudit(url, options = {}) {
       };
     }
 
+    // חישוב זמנים
+    const executionTime = Date.now() - startTime;
+    const loadTime = navigationEnd - navigationStart;
+
     // צילום מסך אופציונלי
     let screenshot = null;
     if (includeScreenshot) {
       screenshot = await captureScreenshot(page);
     }
 
-    // חישוב ציון
+    // חישוב ציון (עם loadTime)
     const seoScore = calculateSeoScore({
       ...basicAnalysis,
       ...contentAnalysis
-    });
-
-    const executionTime = Date.now() - startTime;
-    const loadTime = navigationEnd - navigationStart;
+    }, loadTime);
 
     const results = {
       success: true,
@@ -203,6 +213,13 @@ async function extractBasicData(page, url) {
           url: document.querySelector('meta[property="og:url"]')?.content || '',
           type: document.querySelector('meta[property="og:type"]')?.content || '',
           siteName: document.querySelector('meta[property="og:site_name"]')?.content || ''
+        },
+        twitter: {
+          card: document.querySelector('meta[name="twitter:card"]')?.content || '',
+          title: document.querySelector('meta[name="twitter:title"]')?.content || '',
+          description: document.querySelector('meta[name="twitter:description"]')?.content || '',
+          image: document.querySelector('meta[name="twitter:image"]')?.content || '',
+          site: document.querySelector('meta[name="twitter:site"]')?.content || ''
         }
       };
     }
@@ -210,21 +227,133 @@ async function extractBasicData(page, url) {
     function extractStructuredData() {
       const jsonLdScripts = Array.from(document.querySelectorAll('script[type="application/ld+json"]'));
       const schemaTypes = new Set();
+      const schemasData = [];
+      let hasErrors = false;
+
       jsonLdScripts.forEach(script => {
         try {
           const data = JSON.parse(script.textContent);
+          schemasData.push(data);
+
+          // Extract types
           if (data['@graph']) {
-            data['@graph'].forEach(item => { if (item['@type']) schemaTypes.add(item['@type']); });
+            data['@graph'].forEach(item => {
+              if (item['@type']) {
+                const types = Array.isArray(item['@type']) ? item['@type'] : [item['@type']];
+                types.forEach(t => schemaTypes.add(t));
+              }
+            });
           } else if (data['@type']) {
-            schemaTypes.add(data['@type']);
+            const types = Array.isArray(data['@type']) ? data['@type'] : [data['@type']];
+            types.forEach(t => schemaTypes.add(t));
           }
-        } catch {}
+        } catch (e) {
+          hasErrors = true;
+        }
       });
+
       const schemaArray = Array.from(schemaTypes);
+
+      // Critical schemas check (קריטי ל-LLMs!)
+      const criticalSchemas = {
+        hasOrganization: schemaArray.some(s => s === 'Organization' || s.includes('Organization')),
+        hasWebSite: schemaArray.some(s => s === 'WebSite'),
+        hasWebPage: schemaArray.some(s => s.includes('WebPage') || s.includes('Page')),
+        hasBreadcrumb: schemaArray.some(s => s === 'BreadcrumbList'),
+        hasArticle: schemaArray.some(s => s.includes('Article')),
+        hasProduct: schemaArray.some(s => s === 'Product'),
+        hasPerson: schemaArray.some(s => s === 'Person'),
+        hasLocalBusiness: schemaArray.some(s => s.includes('LocalBusiness') || s.includes('Business')),
+        hasFAQ: schemaArray.some(s => s === 'FAQPage'),
+        hasHowTo: schemaArray.some(s => s === 'HowTo'),
+        hasEvent: schemaArray.some(s => s === 'Event'),
+        hasReview: schemaArray.some(s => s.includes('Review') || s === 'AggregateRating')
+      };
+
+      // LLM-specific analysis
+      const llmReadiness = analyzeLLMReadiness(schemasData, criticalSchemas);
+
+      // Schema quality metrics
+      const quality = {
+        hasValidJSON: !hasErrors,
+        hasContext: schemasData.some(s => s['@context']),
+        hasMainEntity: schemasData.some(s => s.mainEntity || s.mainEntityOfPage),
+        hasImages: schemasData.some(s => {
+          const str = JSON.stringify(s);
+          return str.includes('"image"') || str.includes('"logo"');
+        }),
+        hasStructuredProperties: schemasData.some(s => {
+          const str = JSON.stringify(s);
+          return str.includes('"name"') && str.includes('"url"');
+        })
+      };
+
       return {
         found_schemas: schemaArray,
         schemas_count: schemaArray.length,
-        main_type: schemaArray[0] || null
+        main_type: schemaArray[0] || null,
+        critical_schemas: criticalSchemas,
+        quality,
+        llm_readiness: llmReadiness,
+        raw_count: jsonLdScripts.length,
+        has_errors: hasErrors
+      };
+    }
+
+    // Helper: LLM Readiness Analysis
+    function analyzeLLMReadiness(schemasData, criticalSchemas) {
+      let score = 0;
+      const recommendations = [];
+
+      // Base schemas (30 points)
+      if (criticalSchemas.hasOrganization) score += 10;
+      else recommendations.push('הוסף Organization schema - חיוני ל-AI engines');
+
+      if (criticalSchemas.hasWebSite) score += 10;
+      else recommendations.push('הוסף WebSite schema - מסייע ל-search engines');
+
+      if (criticalSchemas.hasWebPage) score += 10;
+      else recommendations.push('הוסף WebPage schema לכל עמוד');
+
+      // Content schemas (40 points)
+      if (criticalSchemas.hasArticle) score += 15;
+      if (criticalSchemas.hasProduct) score += 15;
+      if (criticalSchemas.hasPerson) score += 5;
+      if (criticalSchemas.hasLocalBusiness) score += 5;
+
+      // Enhanced schemas (30 points)
+      if (criticalSchemas.hasBreadcrumb) score += 10;
+      else recommendations.push('הוסף BreadcrumbList - משפר navigation ב-AI');
+
+      if (criticalSchemas.hasFAQ) score += 10;
+      if (criticalSchemas.hasHowTo) score += 5;
+      if (criticalSchemas.hasReview) score += 5;
+
+      // Check for rich properties
+      const hasRichData = schemasData.some(s => {
+        const str = JSON.stringify(s);
+        return (
+          str.includes('"aggregateRating"') ||
+          str.includes('"offers"') ||
+          str.includes('"author"') ||
+          str.includes('"publisher"')
+        );
+      });
+      if (hasRichData) score += 10;
+      else if (criticalSchemas.hasArticle || criticalSchemas.hasProduct) {
+        recommendations.push('הוסף נתונים מפורטים (author, rating, offers)');
+      }
+
+      // Quality bonuses
+      if (recommendations.length === 0) score += 10; // Bonus for complete
+
+      return {
+        score: Math.min(100, score),
+        level: score >= 80 ? 'מצוין - מוכן ל-LLMs' :
+               score >= 60 ? 'טוב - כמעט מוכן' :
+               score >= 40 ? 'בינוני - חסר schemas חשובים' :
+               'חלש - דרושה עבודה',
+        recommendations: recommendations.length > 0 ? recommendations : ['Schema markup מצוין!']
       };
     }
 
@@ -296,7 +425,7 @@ async function extractBasicData(page, url) {
 }
 
 /**
- * === גרסה מעודכנת: ניתוח תוכן (מחזירה גם rawText לטובת Advertools) ===
+ * === גרסה מעודכנת ומשופרת: ניתוח תוכן (כולל structured content) ===
  */
 async function analyzeContentAndMedia(page) {
   return await page.evaluate(() => {
@@ -330,10 +459,33 @@ async function analyzeContentAndMedia(page) {
         h3: headings.h3.length,
         total: headings.h1.length + headings.h2.length + headings.h3.length
       };
+
       const bodyText = extractCleanContent();
       const words = bodyText.trim().split(/\s+/).filter(w => w.length > 0);
       const sentences = bodyText.split(/[.!?]+/).filter(s => s.trim().length > 0);
       const avgWordsPerSentence = sentences.length > 0 ? Number((words.length / sentences.length).toFixed(1)) : 0;
+
+      // זיהוי שפה (עברית/אנגלית)
+      const hebrewChars = (bodyText.match(/[\u0590-\u05FF]/g) || []).length;
+      const totalChars = bodyText.replace(/\s/g, '').length;
+      const isHebrew = totalChars > 0 && (hebrewChars / totalChars) > 0.3;
+
+      // ספירת פסקאות
+      const paragraphs = Array.from(document.querySelectorAll('p')).filter(p => {
+        const text = p.innerText || p.textContent || '';
+        return text.trim().length > 50; // רק פסקאות עם תוכן משמעותי
+      });
+
+      // Structured content analysis
+      const lists = {
+        ul: document.querySelectorAll('ul').length,
+        ol: document.querySelectorAll('ol').length,
+        total: document.querySelectorAll('ul, ol').length
+      };
+
+      const tables = document.querySelectorAll('table').length;
+      const blockquotes = document.querySelectorAll('blockquote').length;
+      const codeBlocks = document.querySelectorAll('pre, code').length;
 
       return {
         headings,
@@ -341,13 +493,24 @@ async function analyzeContentAndMedia(page) {
         text: {
           totalWords: words.length,
           totalSentences: sentences.length,
+          totalParagraphs: paragraphs.length,
           avgWordsPerSentence,
-          rawText: bodyText // ← חשוב! מזין את Advertools
+          avgWordsPerParagraph: paragraphs.length > 0 ? Math.round(words.length / paragraphs.length) : 0,
+          isHebrew,
+          language: isHebrew ? 'he' : 'en',
+          rawText: bodyText
+        },
+        structuredContent: {
+          lists,
+          tables,
+          blockquotes,
+          codeBlocks,
+          hasStructure: lists.total > 0 || tables > 0 || blockquotes > 0
         },
         enhancedKeywords: { dominant_phrases: [] }, // יוזן אחרי פייתון
         readability: {
-          score: avgWordsPerSentence < 20 ? 80 : 60,
-          level: avgWordsPerSentence < 20 ? 'קל לקריאה' : 'בינוני'
+          score: 0, // יחושב מחדש ב-calculateReadability
+          level: ''
         }
       };
     }
@@ -378,94 +541,449 @@ async function analyzeContentAndMedia(page) {
   });
 }
 
-// === חישוב ציון SEO משופר ===
-function calculateSeoScore(results) {
+/**
+ * === חישוב Readability מתקדם עם תמיכה בשפות ===
+ */
+function calculateReadability(contentAnalysis) {
+  if (!contentAnalysis || !contentAnalysis.text) {
+    return { score: 0, level: 'לא זמין', details: {} };
+  }
+
+  const {
+    avgWordsPerSentence = 0,
+    avgWordsPerParagraph = 0,
+    totalParagraphs = 0,
+    totalWords = 0,
+    isHebrew = false
+  } = contentAnalysis.text;
+
+  const structuredContent = contentAnalysis.structuredContent || {};
+
+  let score = 100;
+  const details = {};
+
+  // התאמה לשפה - טווחים אופטימליים שונים
+  const optimalSentenceRange = isHebrew ? [10, 18] : [12, 20];
+  const optimalParagraphRange = isHebrew ? [60, 120] : [80, 150];
+
+  // בדיקת אורך משפט ממוצע
+  if (avgWordsPerSentence > 0) {
+    if (avgWordsPerSentence < optimalSentenceRange[0]) {
+      const penalty = (optimalSentenceRange[0] - avgWordsPerSentence) * 2;
+      score -= penalty;
+      details.sentenceIssue = 'משפטים קצרים מדי - נסה לפתח רעיונות';
+    } else if (avgWordsPerSentence > optimalSentenceRange[1]) {
+      const penalty = (avgWordsPerSentence - optimalSentenceRange[1]) * 1.5;
+      score -= Math.min(penalty, 30); // מקסימום 30 נקודות קנס
+      details.sentenceIssue = 'משפטים ארוכים מדי - פצל למשפטים קצרים יותר';
+    } else {
+      details.sentenceLength = 'אופטימלי';
+    }
+  }
+
+  // בדיקת אורך פסקה ממוצע
+  if (avgWordsPerParagraph > 0) {
+    if (avgWordsPerParagraph < optimalParagraphRange[0]) {
+      score -= 5;
+      details.paragraphIssue = 'פסקאות קצרות מדי';
+    } else if (avgWordsPerParagraph > optimalParagraphRange[1]) {
+      const penalty = Math.min((avgWordsPerParagraph - optimalParagraphRange[1]) / 10, 15);
+      score -= penalty;
+      details.paragraphIssue = 'פסקאות ארוכות מדי - פצל לפסקאות קצרות יותר';
+    } else {
+      details.paragraphLength = 'אופטימלי';
+    }
+  }
+
+  // בונוס לפסקאות מספיקות
+  if (totalParagraphs >= 4) {
+    score += 5;
+    details.paragraphBonus = 'מספר פסקאות טוב';
+  }
+
+  // בונוס לתוכן מובנה (רשימות, טבלאות)
+  if (structuredContent.hasStructure) {
+    score += 3;
+    details.structureBonus = 'שימוש בתוכן מובנה (רשימות/טבלאות)';
+  }
+
+  // בונוס לאורך תוכן סביר
+  if (totalWords >= 300 && totalWords <= 2000) {
+    score += 2;
+  } else if (totalWords > 2000) {
+    // תוכן ארוך מאוד - ודא שיש מבנה
+    if (!structuredContent.hasStructure && totalParagraphs < 10) {
+      score -= 5;
+      details.longContentWarning = 'תוכן ארוך - הוסף כותרות משנה ורשימות';
+    }
+  }
+
+  // הגבלת ציון לטווח 0-100
+  score = Math.max(0, Math.min(100, Math.round(score)));
+
+  // קביעת רמת קריאות
+  let level;
+  if (score >= 85) level = 'מצוין - קל מאוד לקריאה';
+  else if (score >= 70) level = 'טוב - קל לקריאה';
+  else if (score >= 55) level = 'בינוני - קריא אבל ניתן לשיפור';
+  else if (score >= 40) level = 'קשה - דורש שיפור משמעותי';
+  else level = 'קשה מאוד - משפטים ארוכים וחסר מבנה';
+
+  return {
+    score,
+    level,
+    details,
+    recommendations: generateReadabilityRecommendations(details, avgWordsPerSentence, totalParagraphs)
+  };
+}
+
+function generateReadabilityRecommendations(details, avgWordsPerSentence, totalParagraphs) {
+  const recommendations = [];
+
+  if (details.sentenceIssue && avgWordsPerSentence > 20) {
+    recommendations.push('פצל משפטים ארוכים למשפטים קצרים יותר');
+  }
+
+  if (details.paragraphIssue && details.paragraphIssue.includes('ארוכות')) {
+    recommendations.push('חלק פסקאות ארוכות לפסקאות קצרות יותר');
+  }
+
+  if (totalParagraphs < 3) {
+    recommendations.push('הוסף פסקאות נוספות למבנה ברור יותר');
+  }
+
+  if (!details.structureBonus) {
+    recommendations.push('הוסף רשימות (bullets) או טבלאות לשיפור הקריאות');
+  }
+
+  return recommendations.length > 0 ? recommendations : ['הקריאות טובה - המשך כך'];
+}
+
+// === חישוב ציון SEO משופר עם איזון מחדש ===
+function calculateSeoScore(results, loadTime = 0) {
   const categories = {};
 
-  // === Basic (25) ===
+  // === Basic (20) - הופחת מ-25 ===
   let basicScore = 0;
   const basicIssues = [];
-  if (results.seoChecks?.hasTitle) basicScore += 5; else basicIssues.push("חסר כותרת");
-  if (results.seoChecks?.titleOptimal) basicScore += 5; else if (results.seoChecks?.hasTitle) basicIssues.push("כותרת לא באורך אופטימלי (30-60 תווים)");
-  if (results.seoChecks?.hasMetaDescription) basicScore += 5; else basicIssues.push("חסר meta description");
-  if (results.seoChecks?.metaDescriptionOptimal) basicScore += 5; else if (results.seoChecks?.hasMetaDescription) basicIssues.push("Meta description לא באורך אופטימלי (120-160 תווים)");
-  if (results.seoChecks?.hasH1 && results.seoChecks?.h1Optimal) basicScore += 5; else basicIssues.push("בעיה עם כותרת H1");
-  categories.basic = { score: basicScore, max: 25, issues: basicIssues };
 
-  // === Technical (20) — בלי sitemap בעמוד ===
+  // Title (10 נקודות) - משופר עם טווחים מדויקים
+  if (results.seoChecks?.hasTitle) {
+    const titleLen = results.seoChecks?.titleLength || 0;
+    if (titleLen >= 50 && titleLen <= 60) {
+      basicScore += 5; // אופטימלי
+    } else if (titleLen >= 40 && titleLen <= 65) {
+      basicScore += 3; // טוב
+    } else if (titleLen >= 30) {
+      basicScore += 1; // קיים אבל לא אופטימלי
+      basicIssues.push(`כותרת לא באורך אופטימלי (${titleLen} תווים, מומלץ 50-60)`);
+    } else {
+      basicIssues.push(`כותרת קצרה מדי (${titleLen} תווים)`);
+    }
+  } else {
+    basicIssues.push("חסר כותרת");
+  }
+
+  // Meta Description (10 נקודות) - משופר עם טווחים מדויקים
+  const metaDescLen = results.seoChecks?.metaDescriptionLength || 0;
+  if (results.seoChecks?.hasMetaDescription) {
+    if (metaDescLen >= 140 && metaDescLen <= 160) {
+      basicScore += 5; // אופטימלי
+    } else if (metaDescLen >= 120 && metaDescLen <= 165) {
+      basicScore += 3; // טוב
+    } else if (metaDescLen >= 100) {
+      basicScore += 1; // קיים
+      basicIssues.push(`Meta description לא באורך אופטימלי (${metaDescLen} תווים, מומלץ 140-160)`);
+    } else {
+      basicIssues.push(`Meta description קצר מדי (${metaDescLen} תווים)`);
+    }
+  } else {
+    basicIssues.push("חסר meta description");
+  }
+
+  // H1 (5 נקודות)
+  if (results.seoChecks?.hasH1 && results.seoChecks?.h1Optimal) {
+    basicScore += 5;
+  } else if (results.seoChecks?.hasH1) {
+    basicScore += 2;
+    basicIssues.push(`יותר מ-H1 אחד בעמוד (${results.seoChecks?.h1Count} H1s)`);
+  } else {
+    basicIssues.push("חסר כותרת H1");
+  }
+
+  categories.basic = { score: basicScore, max: 20, issues: basicIssues };
+
+  // === Technical (25) — הועלה מ-20, יותר דגש ===
   let technicalScore = 0;
   const technicalIssues = [];
-  if (results.seoChecks?.isHttps) technicalScore += 5; else technicalIssues.push("האתר לא מאובטח (לא HTTPS)");
-  if (results.seoChecks?.hasCanonical) technicalScore += 4; else technicalIssues.push("חסר canonical URL");
-  if (results.seoChecks?.hasViewport) technicalScore += 4; else technicalIssues.push("חסר viewport meta tag");
-  if (results.seoChecks?.hasDoctype) technicalScore += 2; else technicalIssues.push("חסר DOCTYPE");
-  if (results.seoChecks?.hasLang) technicalScore += 3; else technicalIssues.push("חסר שפה בHTML");
-  if (results.seoChecks?.hasFavicon) technicalScore += 2; else technicalIssues.push("חסר favicon");
-  categories.technical = { score: technicalScore, max: 20, issues: technicalIssues };
 
-  // === Content (20) — לפי dominant_phrases ===
+  // HTTPS (8 נקודות) - קריטי!
+  if (results.seoChecks?.isHttps) {
+    technicalScore += 8;
+  } else {
+    technicalIssues.push("האתר לא מאובטח (לא HTTPS) - קריטי!");
+  }
+
+  // Canonical (5 נקודות)
+  if (results.seoChecks?.hasCanonical) {
+    technicalScore += 5;
+  } else {
+    technicalIssues.push("חסר canonical URL");
+  }
+
+  // Viewport (5 נקודות) - קריטי למובייל
+  if (results.seoChecks?.hasViewport) {
+    technicalScore += 5;
+  } else {
+    technicalIssues.push("חסר viewport meta tag - חובה למובייל");
+  }
+
+  // Robots (3 נקודות)
+  if (results.seoChecks?.hasRobots) {
+    technicalScore += 3;
+  } else {
+    technicalIssues.push("חסר robots meta tag");
+  }
+
+  // Language (2 נקודות)
+  if (results.seoChecks?.hasLang) {
+    technicalScore += 2;
+  } else {
+    technicalIssues.push("חסר שפה בHTML (lang attribute)");
+  }
+
+  // DOCTYPE (1 נקודה)
+  if (results.seoChecks?.hasDoctype) {
+    technicalScore += 1;
+  } else {
+    technicalIssues.push("חסר DOCTYPE");
+  }
+
+  // Favicon (1 נקודה) - נחמד אבל לא קריטי
+  if (results.seoChecks?.hasFavicon) {
+    technicalScore += 1;
+  }
+
+  categories.technical = { score: technicalScore, max: 25, issues: technicalIssues };
+
+  // === Content (25) — הועלה מ-20, התוכן הוא מלך! ===
   let contentScore = 0;
   const contentIssues = [];
+
+  // אורך תוכן (6 נקודות)
   const totalWords = results.contentAnalysis?.text?.totalWords || 0;
-  if (totalWords > 300) contentScore += 5; else contentIssues.push("תוכן קצר מידי (פחות מ-300 מילים)");
+  if (totalWords >= 800) {
+    contentScore += 6;
+  } else if (totalWords >= 500) {
+    contentScore += 4;
+  } else if (totalWords >= 300) {
+    contentScore += 2;
+    contentIssues.push(`תוכן קצר (${totalWords} מילים, מומלץ 500+)`);
+  } else {
+    contentIssues.push(`תוכן קצר מידי (${totalWords} מילים, מינימום 300)`);
+  }
 
+  // ביטויי מפתח דומיננטיים (7 נקודות) - גמיש יותר
   const domPhrases = results.contentAnalysis?.enhancedKeywords?.dominant_phrases || [];
-  const strongPhrases = domPhrases.filter(p => (p?.score ?? p?.count ?? 0) >= 6).length; // score או count
-  if (strongPhrases >= 3) contentScore += 5;
-  else contentIssues.push("מעט ביטויי מפתח דומיננטיים (נסו למקד את התוכן סביב 2–4 ביטויים מרכזיים)");
+  const strongPhrases = domPhrases.filter(p => (p?.score ?? p?.count ?? 0) >= 4).length; // הופחת מ-6 ל-4
+  const mediumPhrases = domPhrases.filter(p => {
+    const val = p?.score ?? p?.count ?? 0;
+    return val >= 2 && val < 4;
+  }).length;
 
+  if (strongPhrases >= 2) {
+    contentScore += 7; // 2 ביטויים חזקים
+  } else if (strongPhrases >= 1) {
+    contentScore += 4; // 1 ביטוי חזק
+    contentIssues.push("מעט ביטויי מפתח דומיננטיים - מקד את התוכן");
+  } else if (mediumPhrases >= 3) {
+    contentScore += 2; // 3 ביטויים בינוניים
+    contentIssues.push("אין ביטויי מפתח חזקים - הוסף מיקוד לתוכן");
+  } else {
+    contentIssues.push("חסר מיקוד בביטויי מפתח - השתמש במילים חוזרות");
+  }
+
+  // כותרות משנה (4 נקודות)
   const headingCount = results.contentAnalysis?.headingCounts?.total || 0;
-  if (headingCount > 3) contentScore += 3; else contentIssues.push("מעט כותרות משנה");
+  if (headingCount >= 5) {
+    contentScore += 4;
+  } else if (headingCount >= 3) {
+    contentScore += 2;
+  } else {
+    contentIssues.push("מעט כותרות משנה - הוסף H2/H3");
+  }
 
+  // קישורים פנימיים (3 נקודות)
   const internalLinks = results.linkAnalysis?.internal || 0;
-  if (internalLinks > 0) contentScore += 3; else contentIssues.push("אין קישורים פנימיים");
+  if (internalLinks >= 3) {
+    contentScore += 3;
+  } else if (internalLinks >= 1) {
+    contentScore += 1;
+    contentIssues.push("מעט קישורים פנימיים");
+  } else {
+    contentIssues.push("אין קישורים פנימיים");
+  }
 
-  const readabilityScore = results.contentAnalysis?.readability?.score || 0;
-  if (readabilityScore > 70) contentScore += 4; else contentIssues.push("קושי בקריאה - משפטים ארוכים מידי");
+  // Readability (5 נקודות) - משתמש בפונקציה המשופרת
+  const readability = calculateReadability(results.contentAnalysis);
+  const readabilityScore = readability.score || 0;
+  results.contentAnalysis.readability = readability; // עדכון התוצאה
 
-  categories.content = { score: contentScore, max: 20, issues: contentIssues };
+  if (readabilityScore >= 80) {
+    contentScore += 5;
+  } else if (readabilityScore >= 60) {
+    contentScore += 3;
+  } else if (readabilityScore >= 40) {
+    contentScore += 1;
+    contentIssues.push("קריאות בינונית - שפר מבנה משפטים");
+  } else {
+    contentIssues.push("קריאות קשה - פצל משפטים ארוכים");
+  }
 
-  // === Media (15) — בלי H1 כפול
+  categories.content = { score: contentScore, max: 25, issues: contentIssues };
+
+  // === Media & UX (15) — מאוזן מחדש ===
   let mediaScore = 0;
   const mediaIssues = [];
-  if (results.seoChecks?.allImagesHaveAlt) mediaScore += 5;
-  else {
-    const missingAlt = results.seoChecks?.imagesWithoutAlt || 0;
-    if (missingAlt > 0) mediaIssues.push(`${missingAlt} תמונות ללא alt text`);
-  }
-  if ((results.linkAnalysis?.linksWithoutText ?? 0) === 0) mediaScore += 3; else mediaIssues.push("יש קישורים ללא טקסט");
-  if (results.seoChecks?.isResponsive) mediaScore += 7; else mediaIssues.push("האתר לא responsive");
-  categories.media = { score: mediaScore, max: 15, issues: mediaIssues };
 
-  // === Social (10)
+  // תמונות עם Alt (6 נקודות) - gradient
+  const totalImages = results.seoChecks?.totalImages || 0;
+  const imagesWithAlt = results.seoChecks?.imagesWithAlt || 0;
+  const imagesWithoutAlt = results.seoChecks?.imagesWithoutAlt || 0;
+
+  if (totalImages > 0) {
+    const altRatio = imagesWithAlt / totalImages;
+    if (altRatio === 1) {
+      mediaScore += 6; // כל התמונות עם alt
+    } else if (altRatio >= 0.8) {
+      mediaScore += 4; // 80%+ עם alt
+      mediaIssues.push(`${imagesWithoutAlt} תמונות ללא alt text`);
+    } else if (altRatio >= 0.5) {
+      mediaScore += 2; // 50%+ עם alt
+      mediaIssues.push(`${imagesWithoutAlt} תמונות ללא alt text`);
+    } else {
+      mediaIssues.push(`רוב התמונות ללא alt text (${imagesWithoutAlt}/${totalImages})`);
+    }
+  }
+
+  // Responsive (4 נקודות) - הופחת מ-7
+  if (results.seoChecks?.isResponsive) {
+    mediaScore += 4;
+  } else {
+    mediaIssues.push("האתר לא responsive - חובה למובייל");
+  }
+
+  // קישורים ללא טקסט (3 נקודות)
+  if ((results.linkAnalysis?.linksWithoutText ?? 0) === 0) {
+    mediaScore += 3;
+  } else {
+    const emptyLinks = results.linkAnalysis?.linksWithoutText || 0;
+    mediaIssues.push(`${emptyLinks} קישורים ללא טקסט`);
+  }
+
+  // Load Time (2 נקודות) - חדש!
+  if (loadTime > 0) {
+    if (loadTime < 2000) {
+      mediaScore += 2;
+    } else if (loadTime < 3000) {
+      mediaScore += 1;
+    } else if (loadTime >= 5000) {
+      mediaIssues.push(`זמן טעינה איטי (${(loadTime / 1000).toFixed(1)}s)`);
+    }
+  }
+
+  categories.mediaUX = { score: mediaScore, max: 15, issues: mediaIssues };
+
+  // === Social (8) — הופחת מ-10, הוצאנו external links ===
   let socialScore = 0;
   const socialIssues = [];
-  if (results.seoChecks?.hasOpenGraph) socialScore += 5; else socialIssues.push("חסר Open Graph tags");
-  const ogImage = results.metaTags?.openGraph?.image;
-  if (ogImage) socialScore += 3; else socialIssues.push("חסר תמונה לשיתוף ברשתות חברתיות");
-  const socialLinks = results.linkAnalysis?.external || 0;
-  if (socialLinks > 0) socialScore += 2;
-  categories.social = { score: socialScore, max: 10, issues: socialIssues };
 
-  // === Structured (10)
+  // Open Graph (4 נקודות)
+  if (results.seoChecks?.hasOpenGraph) {
+    socialScore += 4;
+  } else {
+    socialIssues.push("חסר Open Graph tags");
+  }
+
+  // OG Image (3 נקודות)
+  const ogImage = results.metaTags?.openGraph?.image;
+  if (ogImage) {
+    socialScore += 3;
+  } else {
+    socialIssues.push("חסר תמונה לשיתוף ברשתות חברתיות (og:image)");
+  }
+
+  // Twitter Card (1 נקודה) - חדש!
+  const twitterCard = results.metaTags?.twitter?.card;
+  if (twitterCard) {
+    socialScore += 1;
+  }
+
+  categories.social = { score: socialScore, max: 8, issues: socialIssues };
+
+  // === Structured Data (7) — ניתוח מתקדם ל-LLM readiness ===
   let structuredScore = 0;
   const structuredIssues = [];
-  if (results.seoChecks?.hasJsonLd) structuredScore += 5; else structuredIssues.push("חסר structured data (JSON-LD)");
-  const schemasCount = results.structuredData?.schemas_count || 0;
-  if (schemasCount > 0) structuredScore += 3;
-  if (schemasCount > 2) structuredScore += 2; else if (schemasCount > 0) structuredIssues.push("מעט schemas - הוסף נתונים מובנים נוספים");
-  categories.structured = { score: structuredScore, max: 10, issues: structuredIssues };
 
+  const structuredData = results.structuredData || {};
+  const llmReadiness = structuredData.llm_readiness || {};
+  const criticalSchemas = structuredData.critical_schemas || {};
+  const quality = structuredData.quality || {};
+
+  // Has JSON-LD (2 נקודות)
+  if (results.seoChecks?.hasJsonLd && quality.hasValidJSON) {
+    structuredScore += 2;
+  } else if (results.seoChecks?.hasJsonLd && !quality.hasValidJSON) {
+    structuredScore += 1;
+    structuredIssues.push("Schema JSON לא תקין - תקן שגיאות");
+  } else {
+    structuredIssues.push("חסר structured data (JSON-LD) - קריטי ל-LLMs!");
+  }
+
+  // LLM Readiness Score (5 נקודות) - הציון החשוב ביותר!
+  const llmScore = llmReadiness.score || 0;
+  if (llmScore >= 80) {
+    structuredScore += 5;
+  } else if (llmScore >= 60) {
+    structuredScore += 3;
+    // הוסף המלצות מהLLM analysis
+    if (llmReadiness.recommendations) {
+      llmReadiness.recommendations.slice(0, 2).forEach(r => structuredIssues.push(r));
+    }
+  } else if (llmScore >= 40) {
+    structuredScore += 1;
+    structuredIssues.push("Schema markup לא מספיק מקיף ל-AI engines");
+  } else {
+    structuredIssues.push("Schema markup חלש - הוסף schemas בסיסיים");
+  }
+
+  // Add LLM readiness info to results
+  categories.structured = {
+    score: structuredScore,
+    max: 7,
+    issues: structuredIssues,
+    llmReadiness: {
+      score: llmScore,
+      level: llmReadiness.level,
+      criticalSchemas: Object.entries(criticalSchemas || {})
+        .filter(([key, val]) => val)
+        .map(([key]) => key.replace('has', ''))
+    }
+  };
+
+  // === חישוב ציון כולל ===
   const totalScore = basicScore + technicalScore + contentScore + mediaScore + socialScore + structuredScore;
 
-  let quality;
-  if (totalScore >= 85) quality = "excellent";
-  else if (totalScore >= 70) quality = "good";
-  else if (totalScore >= 50) quality = "needs_improvement";
-  else quality = "poor";
+  let overallQuality;
+  if (totalScore >= 85) overallQuality = "excellent";
+  else if (totalScore >= 70) overallQuality = "good";
+  else if (totalScore >= 50) overallQuality = "needs_improvement";
+  else overallQuality = "poor";
 
+  // Grading משופר עם רמות נוספות
   let grade = 'F';
-  if (totalScore >= 90) grade = 'A+';
+  if (totalScore >= 95) grade = 'A++';       // חדש! מעל ומעבר
+  else if (totalScore >= 90) grade = 'A+';
   else if (totalScore >= 85) grade = 'A';
   else if (totalScore >= 80) grade = 'A-';
   else if (totalScore >= 75) grade = 'B+';
@@ -474,14 +992,95 @@ function calculateSeoScore(results) {
   else if (totalScore >= 60) grade = 'C+';
   else if (totalScore >= 55) grade = 'C';
   else if (totalScore >= 50) grade = 'C-';
+  else if (totalScore >= 45) grade = 'D+';  // חדש
   else if (totalScore >= 40) grade = 'D';
+  else if (totalScore >= 35) grade = 'D-';  // חדש
+  else if (totalScore >= 30) grade = 'E';   // חדש
+
+  // === Build detailed recommendations ===
+  const allRecommendationTypes = [];
+  const recommendationContext = {};
+
+  // Collect all issues from categories
+  Object.entries(categories).forEach(([catName, catData]) => {
+    if (catData.issues && catData.issues.length > 0) {
+      catData.issues.forEach(issue => {
+        // Try to map issue to recommendation type
+        const recType = mapIssueToRecommendationType(issue, catName);
+        if (recType) {
+          allRecommendationTypes.push(recType);
+        }
+      });
+    }
+  });
+
+  // Build detailed recommendations
+  const detailedRecommendations = allRecommendationTypes.map(type =>
+    buildRecommendation(type, recommendationContext[type] || {})
+  );
+
+  // Generate action plan
+  const actionPlan = generateActionPlan(detailedRecommendations);
 
   return {
     total: totalScore,
     grade,
-    quality,
-    categories
+    quality: overallQuality,
+    categories,
+    breakdown: {
+      basic: `${basicScore}/20`,
+      technical: `${technicalScore}/25`,
+      content: `${contentScore}/25`,
+      mediaUX: `${mediaScore}/15`,
+      social: `${socialScore}/8`,
+      structured: `${structuredScore}/7`
+    },
+    // New: Detailed recommendations with how-to-fix
+    recommendations: {
+      total: detailedRecommendations.length,
+      details: detailedRecommendations,
+      actionPlan: actionPlan,
+      summary: actionPlan.summary
+    }
   };
+}
+
+/**
+ * Map issue text to recommendation type
+ */
+function mapIssueToRecommendationType(issue, category) {
+  // Simple mapping - can be enhanced
+  if (issue.includes('חסר כותרת')) return REC.MISSING_TITLE;
+  if (issue.includes('כותרת') && issue.includes('קצר')) return REC.TITLE_TOO_SHORT;
+  if (issue.includes('כותרת') && (issue.includes('ארוכה') || issue.includes('אופטימלי'))) return REC.TITLE_TOO_LONG;
+  if (issue.includes('חסר meta description')) return REC.MISSING_META_DESCRIPTION;
+  if (issue.includes('Meta description') && issue.includes('קצר')) return REC.META_DESC_TOO_SHORT;
+
+  if (issue.includes('לא מאובטח') || issue.includes('HTTPS')) return REC.NOT_HTTPS;
+  if (issue.includes('canonical')) return REC.MISSING_CANONICAL;
+  if (issue.includes('viewport')) return REC.MISSING_VIEWPORT;
+  if (issue.includes('robots meta')) return REC.MISSING_ROBOTS;
+  if (issue.includes('שפה בHTML')) return REC.MISSING_LANG;
+
+  if (issue.includes('תוכן קצר')) return REC.CONTENT_TOO_SHORT;
+  if (issue.includes('ביטויי מפתח') || issue.includes('מיקוד')) return REC.WEAK_KEYWORD_FOCUS;
+  if (issue.includes('כותרות משנה')) return REC.FEW_HEADINGS;
+  if (issue.includes('קישורים פנימיים')) return REC.NO_INTERNAL_LINKS;
+  if (issue.includes('קריאות') || issue.includes('משפטים ארוכים')) return REC.POOR_READABILITY;
+
+  if (issue.includes('תמונות ללא alt')) return REC.MISSING_ALT_TEXT;
+  if (issue.includes('responsive')) return REC.NOT_RESPONSIVE;
+  if (issue.includes('זמן טעינה')) return REC.SLOW_LOAD_TIME;
+  if (issue.includes('קישורים ללא טקסט')) return REC.LINKS_WITHOUT_TEXT;
+
+  if (issue.includes('חסר structured data') || issue.includes('JSON-LD')) return REC.NO_STRUCTURED_DATA;
+  if (issue.includes('Schema markup') || issue.includes('LLM')) return REC.WEAK_LLM_READINESS;
+  if (issue.includes('BreadcrumbList')) return REC.MISSING_BREADCRUMB;
+
+  if (issue.includes('Open Graph')) return REC.NO_OPEN_GRAPH;
+  if (issue.includes('תמונה לשיתוף') || issue.includes('og:image')) return REC.NO_OG_IMAGE;
+
+  return null;
 }
 
 async function captureScreenshot(page) {
