@@ -827,7 +827,11 @@ function calculateSeoScore(results, loadTime = 0) {
   // Readability (5 נקודות) - משתמש בפונקציה המשופרת
   const readability = calculateReadability(results.contentAnalysis);
   const readabilityScore = readability.score || 0;
-  results.contentAnalysis.readability = readability; // עדכון התוצאה
+
+  // עדכון התוצאה רק אם contentAnalysis קיים
+  if (results.contentAnalysis) {
+    results.contentAnalysis.readability = readability;
+  }
 
   if (readabilityScore >= 80) {
     contentScore += 5;
