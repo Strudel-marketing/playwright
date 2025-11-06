@@ -6,6 +6,15 @@ const crypto = require('crypto');
 // ← חדש: ריצה של פייתון (Advertools) להוצאת ביטויים דומיננטיים
 const { analyzeTextKeywords } = require('./textKeywordsService');
 
+// ← חדש: מערכת המלצות מפורטות
+const {
+  buildRecommendation,
+  buildCategoryRecommendations,
+  generateActionPlan,
+  getSimpleIssue,
+  TYPES: REC
+} = require('./recommendationBuilder');
+
 // פולבק מהיר אם פייתון נופל (N-grams 2–4 בצד Node)
 function fallbackDominantPhrases(text = '', topN = 12) {
   try {
@@ -988,6 +997,31 @@ function calculateSeoScore(results, loadTime = 0) {
   else if (totalScore >= 35) grade = 'D-';  // חדש
   else if (totalScore >= 30) grade = 'E';   // חדש
 
+  // === Build detailed recommendations ===
+  const allRecommendationTypes = [];
+  const recommendationContext = {};
+
+  // Collect all issues from categories
+  Object.entries(categories).forEach(([catName, catData]) => {
+    if (catData.issues && catData.issues.length > 0) {
+      catData.issues.forEach(issue => {
+        // Try to map issue to recommendation type
+        const recType = mapIssueToRecommendationType(issue, catName);
+        if (recType) {
+          allRecommendationTypes.push(recType);
+        }
+      });
+    }
+  });
+
+  // Build detailed recommendations
+  const detailedRecommendations = allRecommendationTypes.map(type =>
+    buildRecommendation(type, recommendationContext[type] || {})
+  );
+
+  // Generate action plan
+  const actionPlan = generateActionPlan(detailedRecommendations);
+
   return {
     total: totalScore,
     grade,
@@ -1000,8 +1034,53 @@ function calculateSeoScore(results, loadTime = 0) {
       mediaUX: `${mediaScore}/15`,
       social: `${socialScore}/8`,
       structured: `${structuredScore}/7`
+    },
+    // New: Detailed recommendations with how-to-fix
+    recommendations: {
+      total: detailedRecommendations.length,
+      details: detailedRecommendations,
+      actionPlan: actionPlan,
+      summary: actionPlan.summary
     }
   };
+}
+
+/**
+ * Map issue text to recommendation type
+ */
+function mapIssueToRecommendationType(issue, category) {
+  // Simple mapping - can be enhanced
+  if (issue.includes('חסר כותרת')) return REC.MISSING_TITLE;
+  if (issue.includes('כותרת') && issue.includes('קצר')) return REC.TITLE_TOO_SHORT;
+  if (issue.includes('כותרת') && (issue.includes('ארוכה') || issue.includes('אופטימלי'))) return REC.TITLE_TOO_LONG;
+  if (issue.includes('חסר meta description')) return REC.MISSING_META_DESCRIPTION;
+  if (issue.includes('Meta description') && issue.includes('קצר')) return REC.META_DESC_TOO_SHORT;
+
+  if (issue.includes('לא מאובטח') || issue.includes('HTTPS')) return REC.NOT_HTTPS;
+  if (issue.includes('canonical')) return REC.MISSING_CANONICAL;
+  if (issue.includes('viewport')) return REC.MISSING_VIEWPORT;
+  if (issue.includes('robots meta')) return REC.MISSING_ROBOTS;
+  if (issue.includes('שפה בHTML')) return REC.MISSING_LANG;
+
+  if (issue.includes('תוכן קצר')) return REC.CONTENT_TOO_SHORT;
+  if (issue.includes('ביטויי מפתח') || issue.includes('מיקוד')) return REC.WEAK_KEYWORD_FOCUS;
+  if (issue.includes('כותרות משנה')) return REC.FEW_HEADINGS;
+  if (issue.includes('קישורים פנימיים')) return REC.NO_INTERNAL_LINKS;
+  if (issue.includes('קריאות') || issue.includes('משפטים ארוכים')) return REC.POOR_READABILITY;
+
+  if (issue.includes('תמונות ללא alt')) return REC.MISSING_ALT_TEXT;
+  if (issue.includes('responsive')) return REC.NOT_RESPONSIVE;
+  if (issue.includes('זמן טעינה')) return REC.SLOW_LOAD_TIME;
+  if (issue.includes('קישורים ללא טקסט')) return REC.LINKS_WITHOUT_TEXT;
+
+  if (issue.includes('חסר structured data') || issue.includes('JSON-LD')) return REC.NO_STRUCTURED_DATA;
+  if (issue.includes('Schema markup') || issue.includes('LLM')) return REC.WEAK_LLM_READINESS;
+  if (issue.includes('BreadcrumbList')) return REC.MISSING_BREADCRUMB;
+
+  if (issue.includes('Open Graph')) return REC.NO_OPEN_GRAPH;
+  if (issue.includes('תמונה לשיתוף') || issue.includes('og:image')) return REC.NO_OG_IMAGE;
+
+  return null;
 }
 
 async function captureScreenshot(page) {
