@@ -517,7 +517,46 @@ async function analyzeContentAndMedia(page) {
 
     function analyzeLinks() {
       const currentDomain = window.location.hostname;
-      const contentLinks = Array.from(document.querySelectorAll('a[href]'));
+
+      // מצא את אזור התוכן העיקרי - נסה מספר אסטרטגיות
+      let mainContentArea = null;
+
+      // 1. נסה אלמנטים סמנטיים
+      const semanticSelectors = [
+        'main',
+        'article',
+        '[role="main"]',
+        '[role="article"]',
+        '.post-content',
+        '.entry-content',
+        '.article-content',
+        '.page-content',
+        '#content',
+        '#main-content',
+        '.main-content',
+        '.content'
+      ];
+
+      for (const selector of semanticSelectors) {
+        mainContentArea = document.querySelector(selector);
+        if (mainContentArea) break;
+      }
+
+      // 2. אם לא נמצא, נסנן קישורים מתוך אזורי ניווט/פוטר
+      let contentLinks;
+      if (mainContentArea) {
+        // מצאנו אזור תוכן - קח רק קישורים משם
+        contentLinks = Array.from(mainContentArea.querySelectorAll('a[href]'));
+      } else {
+        // לא מצאנו אזור מוגדר - קח את כל הקישורים אבל הוצא nav/header/footer/aside
+        const allLinks = Array.from(document.querySelectorAll('a[href]'));
+        contentLinks = allLinks.filter(link => {
+          // בדוק אם הקישור נמצא בתוך אלמנטי ניווט/פוטר/סייד-בר
+          const inNavigation = link.closest('nav, header, footer, aside, [role="navigation"], [role="banner"], [role="contentinfo"], [role="complementary"]');
+          return !inNavigation;
+        });
+      }
+
       let internal = 0, external = 0;
       contentLinks.forEach(link => {
         try {
@@ -525,11 +564,13 @@ async function analyzeContentAndMedia(page) {
           if (linkUrl.hostname === currentDomain) internal++; else external++;
         } catch {}
       });
+
       return {
         total: contentLinks.length,
         internal,
         external,
         contentOnly: true,
+        mainContentFound: !!mainContentArea,
         linksWithoutText: contentLinks.filter(link => !link.textContent.trim()).length
       };
     }
