@@ -1,5 +1,6 @@
 const { exec } = require('child_process');
 const path = require('path');
+const { extractKeywordsFromText } = require('../../utils/textAnalyzer');
 
 async function analyzeWithKnowledgeGraph(options) {
   return new Promise((resolve, reject) => {
@@ -76,46 +77,6 @@ function extractKeywordsFromSeoResults(seoResults) {
     console.error('Error extracting keywords from SEO results:', error);
     return [];
   }
-}
-
-function extractKeywordsFromText(text) {
-    try {
-        const stopWords = [
-            'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
-            'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had',
-            'של', 'את', 'עם', 'על', 'אל', 'כל', 'לא', 'אם', 'כי', 'זה', 'היא', 'הוא',
-            'ב', 'ל', 'מ', 'ה', 'ו', 'אני', 'אתה', 'הם', 'אנחנו', 'יש', 'או', 'גם'
-        ];
-        
-        const words = text
-            .toLowerCase()
-            .replace(/[^\u0590-\u05FF\u0041-\u005A\u0061-\u007A\s]/g, ' ')
-            .split(/\s+/)
-            .filter(word => 
-                word.length > 2 && 
-                !stopWords.includes(word) &&
-                !/^\d+$/.test(word) // לא רק מספרים
-            );
-        
-        // ספירת תדירות
-        const frequency = {};
-        words.forEach(word => {
-            frequency[word] = (frequency[word] || 0) + 1;
-        });
-        
-        // החזר 10 המילים הנפוצות ביותר
-        const topKeywords = Object.entries(frequency)
-            .sort(([,a], [,b]) => b - a)
-            .slice(0, 10)
-            .map(([word]) => word);
-        
-        console.log(`📝 Extracted ${topKeywords.length} keywords from text`);
-        return topKeywords;
-        
-    } catch (error) {
-        console.error('Error extracting keywords from text:', error);
-        return [];
-    }
 }
 
 module.exports = {

@@ -191,16 +191,26 @@ async function extractBasicData(page, url) {
       const charset = document.characterSet || 'Not specified';
       const htmlLength = document.documentElement.outerHTML.length;
       const textLength = document.body ? document.body.innerText.length : 0;
+
+      // Fix: Use trimmed title to match seoChecks.hasTitle logic
+      const trimmedTitle = title.trim();
+
       return {
-        title, titleLength: title.length, url, domain, protocol,
+        title: trimmedTitle,
+        titleLength: trimmedTitle.length,
+        url, domain, protocol,
         doctype, language, charset, htmlLength, textLength,
         lastModified: document.lastModified || 'Not available'
       };
     }
 
     function extractMetaTags() {
+      // Fix: Trim meta description to match seoChecks logic
+      const rawDescription = document.querySelector('meta[name="description"]')?.content || '';
+      const description = rawDescription.trim();
+
       return {
-        description: document.querySelector('meta[name="description"]')?.content || '',
+        description,
         keywords: document.querySelector('meta[name="keywords"]')?.content || '',
         author: document.querySelector('meta[name="author"]')?.content || '',
         robots: document.querySelector('meta[name="robots"]')?.content || '',
@@ -358,8 +368,10 @@ async function extractBasicData(page, url) {
     }
 
     function performSeoChecks() {
-      const title = document.title || '';
-      const metaDesc = document.querySelector('meta[name="description"]')?.content || '';
+      const rawTitle = document.title || '';
+      const title = rawTitle.trim(); // Use trimmed title consistently
+      const rawMetaDesc = document.querySelector('meta[name="description"]')?.content || '';
+      const metaDesc = rawMetaDesc.trim(); // Use trimmed meta description consistently
       const images = Array.from(document.querySelectorAll('img'));
       const h1s = document.querySelectorAll('h1');
       const hasSitemap = !!document.querySelector('link[rel="sitemap"]');
@@ -371,7 +383,7 @@ async function extractBasicData(page, url) {
 
       return {
         // בסיסי
-        hasTitle: !!title && title.trim().length > 0,
+        hasTitle: !!title && title.length > 0,
         titleLength: title.length,
         titleOptimal: title.length >= 30 && title.length <= 60,
 
@@ -715,9 +727,12 @@ function calculateSeoScore(results, loadTime = 0) {
       basicScore += 5; // אופטימלי
     } else if (titleLen >= 40 && titleLen <= 65) {
       basicScore += 3; // טוב
+    } else if (titleLen > 65) {
+      basicScore += 1; // ארוך מדי
+      basicIssues.push(`כותרת ארוכה מדי (${titleLen} תווים, מומלץ 50-60)`);
     } else if (titleLen >= 30) {
-      basicScore += 1; // קיים אבל לא אופטימלי
-      basicIssues.push(`כותרת לא באורך אופטימלי (${titleLen} תווים, מומלץ 50-60)`);
+      basicScore += 1; // קצר מדי
+      basicIssues.push(`כותרת קצרה מדי (${titleLen} תווים, מומלץ 50-60)`);
     } else {
       basicIssues.push(`כותרת קצרה מדי (${titleLen} תווים)`);
     }
@@ -732,9 +747,12 @@ function calculateSeoScore(results, loadTime = 0) {
       basicScore += 5; // אופטימלי
     } else if (metaDescLen >= 120 && metaDescLen <= 165) {
       basicScore += 3; // טוב
+    } else if (metaDescLen > 165) {
+      basicScore += 1; // ארוך מדי
+      basicIssues.push(`Meta description ארוך מדי (${metaDescLen} תווים, מומלץ 140-160)`);
     } else if (metaDescLen >= 100) {
-      basicScore += 1; // קיים
-      basicIssues.push(`Meta description לא באורך אופטימלי (${metaDescLen} תווים, מומלץ 140-160)`);
+      basicScore += 1; // קצר מדי
+      basicIssues.push(`Meta description קצר מדי (${metaDescLen} תווים, מומלץ 140-160)`);
     } else {
       basicIssues.push(`Meta description קצר מדי (${metaDescLen} תווים)`);
     }
@@ -1097,9 +1115,10 @@ function mapIssueToRecommendationType(issue, category) {
   // Simple mapping - can be enhanced
   if (issue.includes('חסר כותרת')) return REC.MISSING_TITLE;
   if (issue.includes('כותרת') && issue.includes('קצר')) return REC.TITLE_TOO_SHORT;
-  if (issue.includes('כותרת') && (issue.includes('ארוכה') || issue.includes('אופטימלי'))) return REC.TITLE_TOO_LONG;
+  if (issue.includes('כותרת') && issue.includes('ארוכ')) return REC.TITLE_TOO_LONG;
   if (issue.includes('חסר meta description')) return REC.MISSING_META_DESCRIPTION;
   if (issue.includes('Meta description') && issue.includes('קצר')) return REC.META_DESC_TOO_SHORT;
+  if (issue.includes('Meta description') && issue.includes('ארוך')) return REC.META_DESC_TOO_LONG;
 
   if (issue.includes('לא מאובטח') || issue.includes('HTTPS')) return REC.NOT_HTTPS;
   if (issue.includes('canonical')) return REC.MISSING_CANONICAL;
