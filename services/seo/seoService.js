@@ -191,16 +191,26 @@ async function extractBasicData(page, url) {
       const charset = document.characterSet || 'Not specified';
       const htmlLength = document.documentElement.outerHTML.length;
       const textLength = document.body ? document.body.innerText.length : 0;
+
+      // Fix: Use trimmed title to match seoChecks.hasTitle logic
+      const trimmedTitle = title.trim();
+
       return {
-        title, titleLength: title.length, url, domain, protocol,
+        title: trimmedTitle,
+        titleLength: trimmedTitle.length,
+        url, domain, protocol,
         doctype, language, charset, htmlLength, textLength,
         lastModified: document.lastModified || 'Not available'
       };
     }
 
     function extractMetaTags() {
+      // Fix: Trim meta description to match seoChecks logic
+      const rawDescription = document.querySelector('meta[name="description"]')?.content || '';
+      const description = rawDescription.trim();
+
       return {
-        description: document.querySelector('meta[name="description"]')?.content || '',
+        description,
         keywords: document.querySelector('meta[name="keywords"]')?.content || '',
         author: document.querySelector('meta[name="author"]')?.content || '',
         robots: document.querySelector('meta[name="robots"]')?.content || '',
@@ -358,8 +368,10 @@ async function extractBasicData(page, url) {
     }
 
     function performSeoChecks() {
-      const title = document.title || '';
-      const metaDesc = document.querySelector('meta[name="description"]')?.content || '';
+      const rawTitle = document.title || '';
+      const title = rawTitle.trim(); // Use trimmed title consistently
+      const rawMetaDesc = document.querySelector('meta[name="description"]')?.content || '';
+      const metaDesc = rawMetaDesc.trim(); // Use trimmed meta description consistently
       const images = Array.from(document.querySelectorAll('img'));
       const h1s = document.querySelectorAll('h1');
       const hasSitemap = !!document.querySelector('link[rel="sitemap"]');
@@ -371,7 +383,7 @@ async function extractBasicData(page, url) {
 
       return {
         // בסיסי
-        hasTitle: !!title && title.trim().length > 0,
+        hasTitle: !!title && title.length > 0,
         titleLength: title.length,
         titleOptimal: title.length >= 30 && title.length <= 60,
 
