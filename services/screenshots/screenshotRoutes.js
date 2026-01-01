@@ -232,4 +232,84 @@ router.get('/list', async (req, res) => {
   }
 });
 
+// ========================================
+// HTML to Image - HCTI Alternative
+// ========================================
+
+router.post('/html-to-image', async (req, res) => {
+  try {
+    const { 
+      html,
+      selector = 'body',
+      viewport_width = 1920,
+      viewport_height = 1080,
+      device_scale = 2,
+      ms_delay = 1000,
+      format = 'png',
+      quality = 90,
+      omit_background = false
+    } = req.body;
+
+    if (!html) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameter: html'
+      });
+    }
+
+    console.log(`📄 [HTML-to-Image] Rendering...`);
+
+    const result = await captureScreenshot(null, {
+      html: html,
+      selector: selector,
+      width: viewport_width,
+      height: viewport_height,
+      deviceScaleFactor: device_scale,
+      format: format,
+      quality: format === 'jpeg' ? quality : undefined,
+      fullPage: selector === 'body',
+      saveToFile: true,
+      outputDir: '/app/screenshots',
+      timeout: 30000,
+      blockPopups: true,
+      waitUntil: 'domcontentloaded'
+    });
+
+    if (ms_delay > 0) {
+      await new Promise(resolve => setTimeout(resolve, ms_delay));
+    }
+
+    const base64Image = result.screenshot.includes(',') 
+      ? result.screenshot.split(',')[1] 
+      : result.screenshot;
+
+    const publicUrl = result.filePath 
+      ? `https://play.strudel.marketing/screenshots/${require('path').basename(result.filePath)}`
+      : null;
+
+    console.log(`✅ [HTML-to-Image] Success!`);
+
+    res.json({
+      success: true,
+      url: publicUrl,
+      image_base64: base64Image,
+      dimensions: {
+        width: viewport_width,
+        height: viewport_height,
+        scale: device_scale
+      },
+      format: result.format,
+      selector: selector,
+      timestamp: result.timestamp
+    });
+
+  } catch (error) {
+    console.error('❌ [HTML-to-Image] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;
