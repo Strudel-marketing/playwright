@@ -259,7 +259,7 @@ router.post('/html-to-image', async (req, res) => {
 
     console.log(`📄 [HTML-to-Image] Rendering...`);
 
-    const result = await captureScreenshot(null, {
+    const result = await screenshotService.captureScreenshot(null, {
       html: html,
       selector: selector,
       width: viewport_width,
