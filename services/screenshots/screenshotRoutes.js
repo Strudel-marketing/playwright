@@ -283,8 +283,8 @@ router.post('/html-to-image', async (req, res) => {
       ? result.screenshot.split(',')[1] 
       : result.screenshot;
 
-    const publicUrl = result.filePath 
-      ? `https://play.strudel.marketing/screenshots/${require('path').basename(result.filePath)}`
+    const publicUrl = result.filePath
+      ? `https://playwright.strudel.marketing/screenshots/${require('path').basename(result.filePath)}`
       : null;
 
     console.log(`✅ [HTML-to-Image] Success!`);

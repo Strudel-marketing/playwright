@@ -187,14 +187,14 @@ await page.evaluate(() => {
 
 ### SEO Analysis (עם הגנה מ-redirects)
 ```bash
-curl -X POST https://play.strudel.marketing/api/seo/audit \
+curl -X POST https://playwright.strudel.marketing/api/seo/audit \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com"}'
 ```
 
 ### Screenshot (עם חסימת פופאפים)
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
@@ -208,7 +208,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
 
 ### PAA (עם browserPool)
 ```bash
-curl -X POST https://play.strudel.marketing/api/paa \
+curl -X POST https://playwright.strudel.marketing/api/paa \
   -H "Content-Type: application/json" \
   -d '{"query": "web scraping"}'
 ```
@@ -325,7 +325,7 @@ pm2 restart playwright-api
 
 אם יש בעיות:
 1. בדוק logs: `pm2 logs playwright-api`
-2. בדוק health: `curl https://play.strudel.marketing/health`
+2. בדוק health: `curl https://playwright.strudel.marketing/health`
 3. קרא תיעוד: מסמכים אלה
 4. צור issue ב-GitHub
 
