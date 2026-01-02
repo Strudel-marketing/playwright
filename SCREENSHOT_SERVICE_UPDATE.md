@@ -124,7 +124,7 @@ if (blockMedia) {
 
 ### דוגמה 1: צילום מסך רגיל עם חסימת פופאפים
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
@@ -139,7 +139,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
 
 ### דוגמה 2: צילום עם חסימת media (מהיר יותר)
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
@@ -153,7 +153,7 @@ curl -X POST https://play.strudel.marketing/api/screenshot/capture \
 
 ### דוגמה 3: stealth mode + popup blocking
 ```bash
-curl -X POST https://play.strudel.marketing/api/screenshot/capture \
+curl -X POST https://playwright.strudel.marketing/api/screenshot/capture \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com",
