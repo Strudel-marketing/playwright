@@ -13,6 +13,10 @@ class BrowserPool {
         this.pages = new Map();
         this.isInitialized = false;
         this.requestCounts = new Map();
+
+        // ✅ NEW: per-domain lock to avoid concurrent navigations to same domain
+        this.domainLocks = new Map();
+
         this.maxRequestsPerMinute = 10;
         this.minDelayBetweenRequests = 500;
         this.maxDelayBetweenRequests = 2000;
@@ -220,6 +224,25 @@ class BrowserPool {
         return Math.floor(Math.random() * (this.maxDelayBetweenRequests - this.minDelayBetweenRequests + 1)) + this.minDelayBetweenRequests;
     }
 
+    // ✅ NEW: lock helper to serialize per-domain navigations
+    async withDomainLock(domain, fn) {
+        const prev = this.domainLocks.get(domain) || Promise.resolve();
+
+        let release;
+        const next = new Promise(resolve => { release = resolve; });
+        this.domainLocks.set(domain, prev.then(() => next));
+
+        await prev;
+        try {
+            return await fn();
+        } finally {
+            release();
+            if (this.domainLocks.get(domain) === next) {
+                this.domainLocks.delete(domain);
+            }
+        }
+    }
+
     /**
      * Safe navigation with rate limiting and delays
      * @param {Object} page - Playwright page object
@@ -228,80 +251,83 @@ class BrowserPool {
      * @returns {Promise} - Navigation promise
      */
     async safeNavigate(page, url, options = {}) {
-        // Check rate limiting
-        if (!this.canMakeRequest(url)) {
-            const domain = new URL(url).hostname;
-            throw new Error(`Rate limit exceeded for domain: ${domain}. Please wait before making more requests.`);
-        }
+        const domain = new URL(url).hostname;
 
-        // Add random delay before navigation
-        const delay = this.getRandomDelay();
-        console.log(`⏱️ Adding ${delay}ms delay before navigating to ${url}`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.withDomainLock(domain, async () => {
+            // Check rate limiting
+            if (!this.canMakeRequest(url)) {
+                throw new Error(`Rate limit exceeded for domain: ${domain}. Please wait before making more requests.`);
+            }
 
-        // Record the request
-        this.recordRequest(url);
+            // Add random delay before navigation
+            const delay = this.getRandomDelay();
+            console.log(`⏱️ Adding ${delay}ms delay before navigating to ${url}`);
+            await new Promise(resolve => setTimeout(resolve, delay));
 
-        // Navigate with enhanced options
-        const navigationOptions = {
-            waitUntil: 'networkidle',
-            timeout: 30000,
-            ...options
-        };
+            // Navigate with enhanced options
+            const navigationOptions = {
+                waitUntil: 'networkidle',
+                timeout: 30000,
+                ...options
+            };
 
-        try {
-            const response = await page.goto(url, navigationOptions);
-            
-            // Add small random delay after navigation
-            const postDelay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
-            await new Promise(resolve => setTimeout(resolve, postDelay));
-            
-            return response;
-        } catch (error) {
-            console.error(`Navigation failed for ${url}:`, error.message);
-            throw error;
-        }
+            try {
+                const response = await page.goto(url, navigationOptions);
+
+                // ✅ CHANGED: record only after successful navigation
+                this.recordRequest(url);
+                
+                // Add small random delay after navigation
+                const postDelay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
+                await new Promise(resolve => setTimeout(resolve, postDelay));
+                
+                return response;
+            } catch (error) {
+                console.error(`Navigation failed for ${url}:`, error.message);
+                throw error;
+            }
+        });
     }
 
     /**
- * Get a random user agent string for browser automation
- * @returns {string} Random user agent string
- */
-getRandomUserAgent() {
-    const userAgents = [
-        // Chrome on Windows
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+     * Get a random user agent string for browser automation
+     * @returns {string} Random user agent string
+     */
+    getRandomUserAgent() {
+        const userAgents = [
+            // Chrome on Windows
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            
+            // Chrome on macOS
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            
+            // Chrome on Linux
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            
+            // Firefox on Windows
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+            
+            // Firefox on macOS
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0',
+            
+            // Safari on macOS
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1.2 Safari/605.1.15',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
+            
+            // Edge on Windows  
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0'
+        ];
         
-        // Chrome on macOS
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        
-        // Chrome on Linux
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-        
-        // Firefox on Windows
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-        
-        // Firefox on macOS
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0',
-        
-        // Safari on macOS
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1.2 Safari/605.1.15',
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15',
-        
-        // Edge on Windows  
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0'
-    ];
-    
-    return userAgents[Math.floor(Math.random() * userAgents.length)];
-}
+        return userAgents[Math.floor(Math.random() * userAgents.length)];
+    }
     
     /**
      * Enhanced acquire method with anti-detection
@@ -342,13 +368,7 @@ getRandomUserAgent() {
      * @param {Object} browser - Browser object (not used, for compatibility)
      */
     async release(browser) {
-        // For compatibility with AutomationService
-        // The browser is managed by the pool, so this is essentially a no-op
-        // since we don't actually release the browser per request in pool mode
         console.log('🔄 Browser release called (managed by pool)');
-        
-        // Optionally, we could do some cleanup here if needed
-        // For now, this is just for compatibility
     }
 
     /**
