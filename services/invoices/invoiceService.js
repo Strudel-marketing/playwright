@@ -586,12 +586,30 @@ class InvoiceService {
     if (!session) throw new Error('Session not found or expired');
     session.createdAt = Date.now(); // refresh TTL
 
-    const { page } = session;
+    let { page, context } = session;
+    const urlBefore = page.url();
 
     switch (action.type) {
-      case 'click':
+      case 'click': {
+        // Click may trigger navigation - race waitForNavigation with a timeout
+        const navPromise = page.waitForNavigation({ timeout: 8000, waitUntil: 'networkidle' }).catch(() => null);
         await page.click(action.selector, { timeout: 10000 });
+        // Also listen for popup (new tab)
+        const popupPromise = new Promise(resolve => {
+          const handler = (popup) => { resolve(popup); };
+          context.once('page', handler);
+          setTimeout(() => { context.removeListener('page', handler); resolve(null); }, 3000);
+        });
+        // Wait for either navigation or popup
+        const [navResult, popup] = await Promise.all([navPromise, popupPromise]);
+        // If a new tab opened, switch to it
+        if (popup) {
+          await popup.waitForLoadState('networkidle').catch(() => {});
+          session.page = popup;
+          page = popup;
+        }
         break;
+      }
       case 'type':
         await page.fill(action.selector, action.text || '', { timeout: 10000 });
         break;
@@ -611,8 +629,16 @@ class InvoiceService {
     }
 
     // Wait for page to settle after action
-    await page.waitForLoadState('networkidle').catch(() => {});
-    await new Promise(r => setTimeout(r, 500));
+    if (action.type !== 'click') {
+      await page.waitForLoadState('networkidle').catch(() => {});
+    }
+    // Extra settle time for SPAs that render after navigation
+    await new Promise(r => setTimeout(r, 800));
+    // If URL changed or it was a click, wait for domcontentloaded too
+    if (page.url() !== urlBefore || action.type === 'click') {
+      await page.waitForLoadState('domcontentloaded').catch(() => {});
+      await new Promise(r => setTimeout(r, 500));
+    }
 
     const scan = await this._scanCurrentPage(page);
     return { sessionId, ...scan };
@@ -778,7 +804,7 @@ class InvoiceService {
     analysis.clickableElements = await page.evaluate(() => {
       const results = [];
       const seen = new Set();
-      document.querySelectorAll('button, [role="button"], [role="tab"], .nav-link, .menu-item, [onclick], a[href]:not([href^="http"]):not([href^="mailto"])').forEach(el => {
+      document.querySelectorAll('button, [role="button"], [role="tab"], [role="menuitem"], .nav-link, .menu-item, [onclick], a[href]').forEach(el => {
         const text = el.textContent?.trim() || '';
         if (!text || text.length > 50 || text.length < 2) return;
         const id = el.id || '';
@@ -786,26 +812,37 @@ class InvoiceService {
         if (seen.has(key)) return;
         seen.add(key);
 
+        // Skip external links and mailto
+        const href = el.href || '';
+        if (href.startsWith('mailto:') || href.startsWith('tel:')) return;
+
         let selector = '';
         if (id) selector = `#${CSS.escape(id)}`;
         else if (el.className && typeof el.className === 'string') {
           const cls = el.className.split(/\s+/).filter(c => c.length > 0 && c.length < 30)[0];
           if (cls) selector = `${el.tagName.toLowerCase()}.${cls}`;
         }
-        if (!selector) return;
+        if (!selector) {
+          // Fallback: use text-based selector
+          if (el.tagName === 'A' && href) {
+            try { selector = `a[href*="${new URL(href, document.baseURI).pathname}"]`; } catch {}
+          }
+          if (!selector) return;
+        }
 
         const allText = (text + id + (el.className || '')).toLowerCase();
         let category = 'other';
         if (allText.match(/menu|תפריט|nav/)) category = 'menu';
         else if (allText.match(/tab|לשונית/)) category = 'tab';
         else if (allText.match(/invoice|חשבונ|billing|חיוב|payment|תשלום|finance|כספ|report|דו"?ח|document|מסמכ/)) category = 'relevant';
-        else if (allText.match(/account|חשבון|setting|הגדר|profile|פרופיל|dashboard|ראשי/)) category = 'navigation';
+        else if (allText.match(/account|חשבון|setting|הגדר|profile|פרופיל|dashboard|ראשי|home|בית/)) category = 'navigation';
 
-        if (category !== 'other') {
-          results.push({ text, selector, category, tagName: el.tagName.toLowerCase(), href: el.href || '' });
-        }
+        results.push({ text, selector, category, tagName: el.tagName.toLowerCase(), href: href.substring(0, 200) });
       });
-      return results.slice(0, 20);
+      // Sort: relevant first, then navigation, then menu/tab, then other
+      const order = { relevant: 0, navigation: 1, menu: 2, tab: 3, other: 4 };
+      results.sort((a, b) => (order[a.category] || 4) - (order[b.category] || 4));
+      return results.slice(0, 30);
     });
 
     // Generate suggestions

@@ -830,6 +830,7 @@ function renderExplorerScreen(a) {
   if (a.clickableElements && a.clickableElements.length > 0) {
     const relevant = a.clickableElements.filter(e => e.category === 'relevant');
     const nav = a.clickableElements.filter(e => e.category === 'navigation' || e.category === 'menu' || e.category === 'tab');
+    const other = a.clickableElements.filter(e => e.category === 'other');
 
     if (relevant.length > 0) {
       html += `<div class="analysis-section"><h4>אלמנטים רלוונטיים (חשבוניות, חיובים...) <span class="count-badge">${relevant.length}</span></h4>`;
@@ -850,6 +851,20 @@ function renderExplorerScreen(a) {
       nav.forEach(el => {
         html += `<div class="nav-link-item">
           <div><span class="link-text">${esc(el.text)}</span> <span class="badge badge-info" style="font-size:10px;">${el.category}</span></div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (other.length > 0) {
+      html += `<div class="analysis-section"><h4>אלמנטים נוספים בעמוד <span class="count-badge">${other.length}</span></h4>`;
+      other.forEach(el => {
+        html += `<div class="nav-link-item">
+          <div><span class="link-text">${esc(el.text)}</span> <code style="font-size:10px;">${esc(el.selector)}</code></div>
           <div style="display:flex; gap:4px;">
             <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
             <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
@@ -898,20 +913,30 @@ function renderExplorerScreen(a) {
   if ((!a.forms || a.forms.length === 0) && (!a.downloadLinks || a.downloadLinks.length === 0) && (!a.clickableElements || a.clickableElements.length === 0) && (!a.navigation || a.navigation.length === 0)) {
     html += `<div style="padding:16px; background:var(--bg); border-radius:8px; text-align:center;">
       <p style="color:var(--warning);">לא נמצאו אלמנטים מעניינים בעמוד זה.</p>
-      <p style="color:var(--text2); font-size:12px; margin-top:4px;">נסה לנווט ידנית:</p>
-      <div style="display:flex; gap:6px; justify-content:center; margin-top:8px;">
-        <input class="input" id="manualNavUrl" placeholder="https://..." dir="ltr" style="max-width:300px;">
-        <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl').value}, 'ניווט ידני')">עבור</button>
-      </div>
+      <p style="color:var(--text2); font-size:12px; margin-top:4px;">ייתכן שהעמוד עדיין נטען. נסה לסרוק מחדש או לנווט ידנית.</p>
     </div>`;
   }
 
-  // Manual navigation always available
-  html += `<div style="margin-top:12px; padding:10px; background:var(--bg); border-radius:8px;">
-    <div style="display:flex; gap:6px; align-items:center;">
-      <span style="font-size:12px; color:var(--text2); white-space:nowrap;">ניווט ידני:</span>
+  // Manual navigation & CSS selector click - always available
+  html += `<div style="margin-top:12px; padding:12px; background:var(--bg); border:1px solid var(--border); border-radius:8px;">
+    <div style="font-size:13px; color:var(--text); margin-bottom:8px; font-weight:500;">כלים ידניים</div>
+    <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+      <span style="font-size:12px; color:var(--text2); white-space:nowrap; min-width:70px;">נווט ל-URL:</span>
       <input class="input" id="manualNavUrl2" placeholder="https://..." dir="ltr" style="font-size:12px; padding:6px;">
       <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl2').value}, 'ניווט ידני')">עבור</button>
+    </div>
+    <div style="display:flex; gap:6px; align-items:center; margin-bottom:8px;">
+      <span style="font-size:12px; color:var(--text2); white-space:nowrap; min-width:70px;">לחץ על:</span>
+      <input class="input" id="manualClickSelector" placeholder="#myButton, .some-class, a.link" dir="ltr" style="font-size:12px; padding:6px;">
+      <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click', selector:document.getElementById('manualClickSelector').value}, 'לחיצה ידנית')">לחץ ועבור</button>
+      <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', document.getElementById('manualClickSelector').value, '', 'לחיצה ידנית')">+ שלב</button>
+    </div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <span style="font-size:12px; color:var(--text2); white-space:nowrap; min-width:70px;">הקלד ב-:</span>
+      <input class="input" id="manualTypeSelector" placeholder="#email, input[name='user']" dir="ltr" style="font-size:12px; padding:6px; max-width:200px;">
+      <input class="input" id="manualTypeText" placeholder="טקסט להקלדה" dir="ltr" style="font-size:12px; padding:6px; max-width:150px;">
+      <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'type', selector:document.getElementById('manualTypeSelector').value, text:document.getElementById('manualTypeText').value}, 'הקלדה ידנית')">הקלד</button>
+      <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('type', document.getElementById('manualTypeSelector').value, document.getElementById('manualTypeText').value, 'הקלדה ידנית')">+ שלב</button>
     </div>
   </div>`;
 
