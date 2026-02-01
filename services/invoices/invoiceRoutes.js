@@ -98,6 +98,18 @@ router.post('/test', async (req, res) => {
   }
 });
 
+// Analyze a URL - detect forms, download links, suggest selectors
+router.post('/analyze', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ success: false, error: 'URL is required' });
+    const analysis = await invoiceService.analyzePage(url);
+    res.json({ success: true, analysis });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Run with inline config
 router.post('/run', async (req, res) => {
   try {

@@ -267,6 +267,287 @@ class InvoiceService {
   }
 
   /**
+   * Analyze a URL and suggest selectors for login forms, download buttons, etc.
+   * Returns structured suggestions the UI can use to auto-populate steps.
+   */
+  async analyzePage(url) {
+    const { page, context } = await browserPool.acquire();
+    const analysis = { url, forms: [], downloadLinks: [], navigation: [], screenshot: null };
+
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      analysis.finalUrl = page.url();
+      analysis.title = await page.title();
+
+      // --- Detect all forms and their fields ---
+      analysis.forms = await page.evaluate(() => {
+        const forms = [];
+        // Check explicit <form> tags and also look for implicit login patterns
+        const formEls = document.querySelectorAll('form');
+        const processed = new Set();
+
+        function describeInput(el) {
+          const type = el.type || el.tagName.toLowerCase();
+          const name = el.name || '';
+          const id = el.id || '';
+          const placeholder = el.placeholder || '';
+          const label = el.labels?.[0]?.textContent?.trim() || '';
+          const ariaLabel = el.getAttribute('aria-label') || '';
+
+          // Build best selector
+          let selector = '';
+          if (id) selector = `#${CSS.escape(id)}`;
+          else if (name) selector = `${el.tagName.toLowerCase()}[name="${name}"]`;
+          else if (el.type && el.type !== 'text') selector = `input[type="${el.type}"]`;
+
+          // Guess the purpose
+          let purpose = 'unknown';
+          const allText = (name + id + placeholder + label + ariaLabel + (el.type || '')).toLowerCase();
+          if (allText.match(/email|mail|אימייל|דוא/)) purpose = 'email';
+          else if (allText.match(/user|username|שם.?משתמש|login/)) purpose = 'username';
+          else if (allText.match(/pass|password|סיסמ/)) purpose = 'password';
+          else if (allText.match(/phone|טלפון|נייד|mobile/)) purpose = 'phone';
+          else if (allText.match(/otp|code|קוד|אימות|verify/)) purpose = 'otp';
+          else if (type === 'password') purpose = 'password';
+          else if (type === 'email') purpose = 'email';
+
+          return { type, name, id, placeholder, label: label || ariaLabel, selector, purpose, tagName: el.tagName.toLowerCase() };
+        }
+
+        function describeButton(el) {
+          const text = el.textContent?.trim() || '';
+          const type = el.type || '';
+          const id = el.id || '';
+          let selector = '';
+          if (id) selector = `#${CSS.escape(id)}`;
+          else if (type === 'submit') selector = `button[type="submit"], input[type="submit"]`;
+          else selector = el.tagName.toLowerCase();
+
+          let purpose = 'submit';
+          const allText = (text + id + (el.className || '')).toLowerCase();
+          if (allText.match(/login|sign.?in|כניס|התחבר|enter/)) purpose = 'login';
+          else if (allText.match(/register|sign.?up|הרשמ/)) purpose = 'register';
+          else if (allText.match(/forgot|reset|שכח|איפוס/)) purpose = 'forgot_password';
+
+          return { text, type, id, selector, purpose };
+        }
+
+        formEls.forEach((form, idx) => {
+          const inputs = Array.from(form.querySelectorAll('input, select, textarea'))
+            .filter(el => !['hidden', 'submit', 'button'].includes(el.type))
+            .map(describeInput);
+
+          const buttons = Array.from(form.querySelectorAll('button, input[type="submit"], [role="button"]'))
+            .map(describeButton);
+
+          // Determine form type
+          const allPurposes = inputs.map(i => i.purpose).join(',');
+          let formType = 'unknown';
+          if (allPurposes.match(/password/) && allPurposes.match(/email|username/)) formType = 'login';
+          else if (allPurposes.match(/email|username/) && !allPurposes.match(/password/)) formType = 'email_only_login';
+          else if (allPurposes.match(/otp/)) formType = 'otp_verification';
+
+          inputs.forEach(i => processed.add(i.selector));
+
+          forms.push({
+            index: idx,
+            action: form.action || '',
+            method: form.method || '',
+            formType,
+            inputs,
+            buttons,
+            selector: form.id ? `#${CSS.escape(form.id)}` : `form:nth-of-type(${idx + 1})`
+          });
+        });
+
+        // Also look for "loose" inputs not inside a form (common in SPA login pages)
+        const looseInputs = Array.from(document.querySelectorAll('input, select, textarea'))
+          .filter(el => !el.closest('form') && !['hidden', 'submit', 'button'].includes(el.type))
+          .map(describeInput)
+          .filter(i => !processed.has(i.selector));
+
+        const looseButtons = Array.from(document.querySelectorAll('button, [role="button"], a.btn, a.button'))
+          .filter(el => !el.closest('form'))
+          .map(describeButton)
+          .filter(b => b.purpose === 'login' || b.text.length > 0);
+
+        if (looseInputs.length > 0) {
+          const allPurposes = looseInputs.map(i => i.purpose).join(',');
+          let formType = 'unknown';
+          if (allPurposes.match(/password/) && allPurposes.match(/email|username/)) formType = 'login';
+          else if (allPurposes.match(/email|username/)) formType = 'email_only_login';
+
+          forms.push({
+            index: -1,
+            action: '',
+            method: '',
+            formType,
+            inputs: looseInputs,
+            buttons: looseButtons.slice(0, 5),
+            selector: 'body (no form tag)',
+            isLoose: true
+          });
+        }
+
+        return forms;
+      });
+
+      // --- Detect download links and buttons ---
+      analysis.downloadLinks = await page.evaluate(() => {
+        const results = [];
+
+        // Links with download-like hrefs
+        document.querySelectorAll('a[href]').forEach(a => {
+          const href = a.href || '';
+          const text = a.textContent?.trim() || '';
+          const allText = (href + text + (a.className || '') + (a.id || '')).toLowerCase();
+
+          const isDownload = a.hasAttribute('download') ||
+            allText.match(/download|הורד|חשבונית|invoice|receipt|קבלה|pdf|excel|csv|export|ייצוא/) ||
+            href.match(/\.(pdf|xlsx|xls|csv|doc|docx|zip)(\?|$)/i);
+
+          if (isDownload) {
+            let selector = '';
+            if (a.id) selector = `#${CSS.escape(a.id)}`;
+            else if (a.className) selector = `a.${a.className.split(/\s+/)[0]}`;
+            else selector = `a[href*="${href.split('/').pop()?.split('?')[0] || ''}"]`;
+
+            results.push({
+              text,
+              href: href.substring(0, 200),
+              selector,
+              hasDownloadAttr: a.hasAttribute('download'),
+              fileType: (href.match(/\.(pdf|xlsx|xls|csv|doc|docx|zip)/i) || [])[1] || 'unknown'
+            });
+          }
+        });
+
+        // Buttons that look like downloads
+        document.querySelectorAll('button, [role="button"]').forEach(btn => {
+          const text = btn.textContent?.trim() || '';
+          const allText = (text + (btn.className || '') + (btn.id || '')).toLowerCase();
+
+          if (allText.match(/download|הורד|חשבונית|invoice|export|ייצוא|pdf|excel/)) {
+            let selector = '';
+            if (btn.id) selector = `#${CSS.escape(btn.id)}`;
+            else if (btn.className) selector = `button.${btn.className.split(/\s+/)[0]}`;
+
+            results.push({
+              text,
+              href: '',
+              selector,
+              hasDownloadAttr: false,
+              fileType: 'unknown',
+              isButton: true
+            });
+          }
+        });
+
+        return results;
+      });
+
+      // --- Detect navigation links (invoices pages, billing, account, etc.) ---
+      analysis.navigation = await page.evaluate(() => {
+        const results = [];
+        const seen = new Set();
+
+        document.querySelectorAll('a[href], [role="link"]').forEach(a => {
+          const href = a.href || '';
+          const text = a.textContent?.trim() || '';
+          if (!text || text.length > 60 || seen.has(href)) return;
+          seen.add(href);
+
+          const allText = (href + text).toLowerCase();
+          const isRelevant = allText.match(/invoice|billing|חשבונ|חיוב|payment|תשלום|receipt|קבלה|account|חשבון|document|מסמכ|report|דו"?ח|statement|הצהר|order|הזמנ|subscription|מנוי|finance|כספ/);
+
+          if (isRelevant) {
+            let selector = '';
+            if (a.id) selector = `#${CSS.escape(a.id)}`;
+            else selector = `a[href*="${new URL(href, document.baseURI).pathname}"]`;
+
+            results.push({ text, href: href.substring(0, 200), selector });
+          }
+        });
+
+        return results.slice(0, 15);
+      });
+
+      // --- Generate suggested steps ---
+      analysis.suggestedLoginSteps = [];
+      analysis.suggestedDownloadSteps = [];
+
+      // Find the best login form
+      const loginForm = analysis.forms.find(f => f.formType === 'login') ||
+                        analysis.forms.find(f => f.formType === 'email_only_login') ||
+                        analysis.forms[0];
+
+      if (loginForm) {
+        for (const input of loginForm.inputs) {
+          if (input.purpose === 'email' || input.purpose === 'username') {
+            analysis.suggestedLoginSteps.push({
+              action: 'type', selector: input.selector,
+              text: '{{username}}',
+              description: input.label || input.placeholder || input.purpose
+            });
+          } else if (input.purpose === 'password') {
+            analysis.suggestedLoginSteps.push({
+              action: 'type', selector: input.selector,
+              text: '{{password}}',
+              description: input.label || input.placeholder || 'password'
+            });
+          }
+        }
+        // Add submit button
+        const loginBtn = loginForm.buttons.find(b => b.purpose === 'login') || loginForm.buttons[0];
+        if (loginBtn) {
+          analysis.suggestedLoginSteps.push({
+            action: 'click', selector: loginBtn.selector,
+            description: loginBtn.text || 'submit'
+          });
+        }
+      }
+
+      // Suggest navigation to invoices page if found
+      if (analysis.navigation.length > 0) {
+        const invoicePage = analysis.navigation.find(n =>
+          n.text.toLowerCase().match(/invoice|חשבונ/)
+        ) || analysis.navigation[0];
+
+        analysis.suggestedDownloadSteps.push({
+          action: 'navigate', url: invoicePage.href,
+          selector: invoicePage.selector,
+          description: `נווט ל: ${invoicePage.text}`
+        });
+      }
+
+      // Suggest download buttons
+      if (analysis.downloadLinks.length > 0) {
+        const best = analysis.downloadLinks[0];
+        analysis.suggestedDownloadSteps.push({
+          action: analysis.downloadLinks.length > 1 ? 'downloadAll' : 'download',
+          selector: best.selector,
+          description: `${best.text || 'download'} (${best.fileType})`
+        });
+      }
+
+      // Screenshot
+      const screenshot = await page.screenshot({ fullPage: false });
+      analysis.screenshot = screenshot.toString('base64');
+
+    } catch (error) {
+      analysis.error = error.message;
+      try {
+        const screenshot = await page.screenshot({ fullPage: false });
+        analysis.screenshot = screenshot.toString('base64');
+      } catch {}
+    } finally {
+      await browserPool.releasePageObject({ page, context });
+    }
+
+    return analysis;
+  }
+
+  /**
    * Test a site configuration by running login only
    */
   async testSite(site) {
