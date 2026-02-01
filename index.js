@@ -16,6 +16,8 @@ const seoRoutes = require('./services/seo/seoRoutes');
 const schemaRoutes = require('./services/schema/schemaRoutes');
 const screenshotRoutes = require('./services/screenshots/screenshotRoutes');
 const automationRoutes = require('./services/automation/automationRoutes');
+const invoiceRoutes = require('./services/invoices/invoiceRoutes');
+const invoiceScheduler = require('./services/invoices/invoiceScheduler');
 const compareRoutes = require('./services/comparison/compareRoutes');
 const paaRoutes = require('./services/paa/paaRoutes');
 const performanceRoutes = require('./services/performance/performanceRoutes');
@@ -46,6 +48,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
+
+// Static files for invoice dashboard (before auth)
+app.use('/invoices', express.static(path.join(__dirname, 'public', 'invoices')));
 
 // Static files for screenshots (לפני auth!)
 app.use('/screenshots', express.static('/app/screenshots', {
@@ -80,6 +85,7 @@ app.use('/api/seo', seoRoutes);
 app.use('/api/extract', schemaRoutes);
 app.use('/api/screenshot', screenshotRoutes);
 app.use('/api/automation', automationRoutes);
+app.use('/api/invoices', invoiceRoutes);
 app.use('/api/compare', compareRoutes);
 app.use('/api/paa', paaRoutes);
 app.use('/api/performance', performanceRoutes);
@@ -96,7 +102,12 @@ app.listen(PORT, () => {
     console.log(`❓ PAA: http://localhost:${PORT}/api/paa`);
     console.log(`🏥 Performance: http://localhost:${PORT}/api/performance`);
     console.log(`🧠 Knowledge Graph: http://localhost:${PORT}/api/knowledge`);
+    console.log(`📄 Invoices: http://localhost:${PORT}/api/invoices`);
+    console.log(`📄 Invoice Dashboard: http://localhost:${PORT}/invoices`);
     console.log(`💚 Health Check: http://localhost:${PORT}/health`);
+
+    // Start invoice scheduler
+    invoiceScheduler.start().catch(err => console.error('Invoice scheduler start error:', err));
 });
 
 // Graceful shutdown
