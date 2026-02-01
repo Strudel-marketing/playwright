@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Invoice Automation Dashboard</title>
+<style>
+  :root {
+    --bg: #0f172a; --surface: #1e293b; --surface2: #334155;
+    --border: #475569; --text: #e2e8f0; --text2: #94a3b8;
+    --primary: #3b82f6; --primary-hover: #2563eb;
+    --success: #22c55e; --danger: #ef4444; --warning: #f59e0b;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text2); }
+  .header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+
+  .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  .tabs { display: flex; gap: 4px; margin-bottom: 24px; background: var(--surface); border-radius: var(--radius); padding: 4px; }
+  .tab { padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 14px; color: var(--text2); border: none; background: none; transition: all 0.2s; }
+  .tab:hover { color: var(--text); background: var(--surface2); }
+  .tab.active { background: var(--primary); color: white; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .card h3 { font-size: 16px; margin-bottom: 12px; }
+
+  .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-success { background: var(--success); color: white; }
+  .btn-danger { background: var(--danger); color: white; }
+  .btn-warning { background: var(--warning); color: #000; }
+  .btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border); }
+  .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  .input, select, textarea { width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit; }
+  .input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); }
+  textarea { resize: vertical; min-height: 80px; }
+
+  .form-group { margin-bottom: 14px; }
+  .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; font-weight: 500; }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .site-list { display: grid; gap: 12px; }
+  .site-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; display: flex; align-items: center; justify-content: space-between; transition: border-color 0.2s; }
+  .site-card:hover { border-color: var(--primary); }
+  .site-info h4 { font-size: 15px; margin-bottom: 4px; }
+  .site-info p { font-size: 12px; color: var(--text2); }
+  .site-actions { display: flex; gap: 6px; }
+
+  .badge { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+  .badge-success { background: rgba(34,197,94,0.15); color: var(--success); }
+  .badge-danger { background: rgba(239,68,68,0.15); color: var(--danger); }
+  .badge-warning { background: rgba(245,158,11,0.15); color: var(--warning); }
+  .badge-info { background: rgba(59,130,246,0.15); color: var(--primary); }
+
+  .history-table { width: 100%; border-collapse: collapse; }
+  .history-table th, .history-table td { padding: 10px 12px; text-align: right; font-size: 13px; border-bottom: 1px solid var(--border); }
+  .history-table th { color: var(--text2); font-weight: 500; font-size: 12px; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 95%; max-width: 700px; max-height: 85vh; overflow-y: auto; }
+  .modal h2 { font-size: 18px; margin-bottom: 16px; }
+  .modal-footer { display: flex; justify-content: flex-start; gap: 8px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+
+  .steps-list { display: flex; flex-direction: column; gap: 8px; }
+  .step-item { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; }
+  .step-num { background: var(--primary); color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+  .step-fields { display: flex; gap: 6px; flex-wrap: wrap; }
+  .step-fields select, .step-fields input { padding: 6px 8px; font-size: 12px; width: auto; min-width: 100px; }
+
+  .screenshot-preview { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); margin-top: 12px; }
+
+  .empty-state { text-align: center; padding: 48px 20px; color: var(--text2); }
+  .empty-state h3 { font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px 20px; font-size: 14px; z-index: 200; box-shadow: 0 8px 24px rgba(0,0,0,0.3); display: none; }
+  .toast.show { display: block; animation: slideUp 0.3s ease; }
+  @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+  .loading { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--text2); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .hidden { display: none !important; }
+
+  .help-text { font-size: 11px; color: var(--text2); margin-top: 3px; direction: ltr; text-align: left; font-family: monospace; }
+
+  .analyzer-box { background: linear-gradient(135deg, #1e3a5f 0%, #1e293b 100%); border: 1px solid var(--primary); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+  .analyzer-box h3 { color: var(--primary); }
+  .analyzer-url-row { display: flex; gap: 8px; margin-top: 12px; }
+  .analyzer-url-row input { flex: 1; }
+
+  .suggestion-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; cursor: pointer; transition: all 0.2s; }
+  .suggestion-card:hover { border-color: var(--primary); background: rgba(59,130,246,0.05); }
+  .suggestion-card h4 { font-size: 13px; margin-bottom: 6px; color: var(--primary); }
+  .suggestion-card code { font-size: 11px; color: var(--warning); background: rgba(245,158,11,0.1); padding: 2px 6px; border-radius: 4px; direction: ltr; display: inline-block; }
+  .suggestion-card .desc { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  .analysis-section { margin-top: 16px; }
+  .analysis-section h4 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .analysis-section .count-badge { background: var(--primary); color: white; border-radius: 12px; padding: 1px 8px; font-size: 11px; }
+
+  .nav-link-item { display: flex; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; font-size: 12px; }
+  .nav-link-item .link-text { color: var(--text); }
+  .nav-link-item .link-url { color: var(--text2); font-size: 10px; direction: ltr; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Invoice Automation</h1>
+  <div class="status">
+    <span class="dot" id="schedulerDot"></span>
+    <span id="schedulerStatus">Scheduler: loading...</span>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <button class="tab active" onclick="showTab('sites')">אתרים</button>
+    <button class="tab" onclick="showTab('wizard')">הוספת אתר</button>
+    <button class="tab" onclick="showTab('history')">היסטוריה</button>
+    <button class="tab" onclick="showTab('downloads')">הורדות</button>
+  </div>
+
+  <!-- Sites Tab -->
+  <div id="tab-sites">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="font-size:18px;">האתרים שלי</h2>
+      <button class="btn btn-primary" onclick="showTab('wizard')">+ הוסף אתר</button>
+    </div>
+    <div id="sitesList" class="site-list">
+      <div class="empty-state">
+        <h3>אין אתרים מוגדרים</h3>
+        <p>לחץ על "הוסף אתר" כדי להתחיל</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wizard Tab -->
+  <div id="tab-wizard" class="hidden">
+    <div class="card">
+      <h3>הגדרת אתר חדש</h3>
+      <p style="color:var(--text2); font-size:13px; margin-bottom:16px;">
+        הגדר את השלבים שהדפדפן צריך לבצע כדי להגיע לחשבוניות ולהוריד אותן.
+      </p>
+
+      <!-- Smart Analyzer - Interactive Multi-Screen Explorer -->
+      <div class="analyzer-box">
+        <h3>סייר אינטראקטיבי</h3>
+        <p style="color:var(--text2); font-size:13px; margin-top:4px;">
+          הזן כתובת ונתחיל לסייר באתר יחד. בכל מסך תראה מה יש בעמוד ותוכל לבחור לאן להמשיך -
+          עד שתגיע לעמוד החשבוניות. כל פעולה שתבחר תתווסף אוטומטית לשלבים.
+        </p>
+        <div class="analyzer-url-row">
+          <input class="input" id="analyzeUrl" placeholder="https://example.com/login" dir="ltr">
+          <button class="btn btn-primary" id="analyzeBtn" onclick="startExplorer()">התחל סיור</button>
+        </div>
+        <div id="explorerPanel" class="hidden" style="margin-top:16px;">
+          <!-- Breadcrumb trail of visited screens -->
+          <div id="explorerBreadcrumbs" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+
+          <!-- Current page info -->
+          <div id="explorerScreen"></div>
+
+          <!-- Action bar -->
+          <div id="explorerActions" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px;">
+            <button class="btn btn-ghost btn-sm" onclick="explorerRescan()">סרוק מחדש</button>
+            <button class="btn btn-danger btn-sm" onclick="closeExplorer()">סגור סיור</button>
+          </div>
+        </div>
+        <div id="analysisResult" class="hidden" style="margin-top:16px;"></div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>שם האתר</label>
+          <input class="input" id="w-name" placeholder="לדוגמה: חשבונית ירוקה">
+        </div>
+        <div class="form-group">
+          <label>כתובת כניסה (Login URL)</label>
+          <input class="input" id="w-loginUrl" placeholder="https://example.com/login" dir="ltr">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>כתובת עמוד חשבוניות (אופציונלי)</label>
+          <input class="input" id="w-invoicesUrl" placeholder="https://example.com/invoices" dir="ltr">
+        </div>
+        <div class="form-group">
+          <label>ממתין לאלמנט אחרי login (אופציונלי)</label>
+          <input class="input" id="w-loginWaitFor" placeholder=".dashboard, #main-content" dir="ltr">
+          <div class="help-text">CSS selector שמעיד שה-login הצליח</div>
+        </div>
+      </div>
+
+      <hr style="border-color:var(--border); margin: 20px 0;">
+      <h3>פרטי התחברות</h3>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>שם משתמש / אימייל</label>
+          <input class="input" id="w-username" dir="ltr">
+        </div>
+        <div class="form-group">
+          <label>סיסמה</label>
+          <input class="input" id="w-password" type="password" dir="ltr">
+        </div>
+      </div>
+
+      <hr style="border-color:var(--border); margin: 20px 0;">
+      <h3>שלבי התחברות (Login Steps)</h3>
+      <p style="color:var(--text2); font-size:12px; margin-bottom:12px;">
+        הגדר מה הדפדפן צריך לעשות כדי להתחבר. השתמש ב-<code dir="ltr">{{username}}</code> ו-<code dir="ltr">{{password}}</code> בשדה הטקסט כדי להזין את הפרטים.
+      </p>
+      <div id="loginSteps" class="steps-list"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="addLoginStep()">+ הוסף שלב</button>
+
+      <hr style="border-color:var(--border); margin: 20px 0;">
+      <h3>שלבי הורדה (Download Steps)</h3>
+      <p style="color:var(--text2); font-size:12px; margin-bottom:12px;">
+        הגדר איך להוריד את החשבוניות. בחר <strong>download</strong> ללחיצה על כפתור הורדה בודד, או <strong>downloadAll</strong> להורדת כל הקבצים שתואמים ל-selector.
+      </p>
+      <div id="downloadSteps" class="steps-list"></div>
+      <button class="btn btn-ghost btn-sm" style="margin-top:8px;" onclick="addDownloadStep()">+ הוסף שלב</button>
+
+      <hr style="border-color:var(--border); margin: 20px 0;">
+      <h3>תזמון (אופציונלי)</h3>
+      <div class="form-row">
+        <div class="form-group">
+          <label>סוג תזמון</label>
+          <select id="w-schedType">
+            <option value="">ללא תזמון</option>
+            <option value="interval">כל X שעות</option>
+            <option value="daily">יומי</option>
+            <option value="monthly">חודשי</option>
+          </select>
+        </div>
+        <div class="form-group" id="schedDetails"></div>
+      </div>
+
+      <div class="modal-footer" style="border:none; padding-top:12px;">
+        <button class="btn btn-primary" onclick="saveSiteFromWizard()">שמור אתר</button>
+        <button class="btn btn-warning" onclick="testSiteFromWizard()">בדוק חיבור</button>
+        <button class="btn btn-ghost" onclick="resetWizard(); showTab('sites')">ביטול</button>
+      </div>
+    </div>
+    <div id="testResult" class="card hidden">
+      <h3>תוצאת בדיקה</h3>
+      <div id="testResultContent"></div>
+    </div>
+  </div>
+
+  <!-- History Tab -->
+  <div id="tab-history" class="hidden">
+    <h2 style="font-size:18px; margin-bottom:16px;">היסטוריית הרצות</h2>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table class="history-table">
+        <thead>
+          <tr><th>תאריך</th><th>אתר</th><th>סטטוס</th><th>הורדות</th><th>זמן</th><th>שגיאה</th></tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text2);">טוען...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Downloads Tab -->
+  <div id="tab-downloads" class="hidden">
+    <h2 style="font-size:18px; margin-bottom:16px;">קבצים שהורדו</h2>
+    <div class="form-group" style="max-width:300px; margin-bottom:16px;">
+      <label>בחר אתר</label>
+      <select id="dlSiteSelect" onchange="loadDownloads()">
+        <option value="">בחר אתר...</option>
+      </select>
+    </div>
+    <div id="downloadsList">
+      <div class="empty-state"><p>בחר אתר כדי לראות הורדות</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Edit Modal -->
+<div class="modal-overlay hidden" id="editModal">
+  <div class="modal">
+    <h2 id="editModalTitle">עריכת אתר</h2>
+    <div id="editModalContent"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = '/api/invoices';
+const API_KEY = new URLSearchParams(window.location.search).get('key') || '';
+
+async function api(path, method = 'GET', body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API_BASE + path, opts);
+  return res.json();
+}
+
+// --- Tabs ---
+function showTab(name) {
+  document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  if (name === 'sites') loadSites();
+  if (name === 'history') loadHistory();
+  if (name === 'downloads') loadDownloadSites();
+}
+
+// --- Toast ---
+function toast(msg, duration = 3000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+// --- Sites ---
+async function loadSites() {
+  const { sites } = await api('/sites');
+  const el = document.getElementById('sitesList');
+  if (!sites || sites.length === 0) {
+    el.innerHTML = '<div class="empty-state"><h3>אין אתרים מוגדרים</h3><p>לחץ על "הוסף אתר" כדי להתחיל</p></div>';
+    return;
+  }
+  el.innerHTML = sites.map(s => `
+    <div class="site-card">
+      <div class="site-info">
+        <h4>${esc(s.name)}</h4>
+        <p>${esc(s.loginUrl || s.url || '')} ${s.schedule && s.schedule.enabled ? '<span class="badge badge-info">מתוזמן</span>' : ''}</p>
+      </div>
+      <div class="site-actions">
+        <button class="btn btn-primary btn-sm" onclick="runSite('${s.id}', this)">הרץ עכשיו</button>
+        <button class="btn btn-warning btn-sm" onclick="testSite('${s.id}', this)">בדוק</button>
+        <button class="btn btn-ghost btn-sm" onclick="editSite('${s.id}')">ערוך</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSite('${s.id}', '${esc(s.name)}')">מחק</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+async function runSite(id, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span> מריץ...';
+  toast('מריץ אוטומציה...');
+  try {
+    const { result } = await api(`/sites/${id}/run`, 'POST');
+    if (result.success) {
+      toast(`הושלם! ${result.downloads.length} קבצים הורדו`);
+    } else {
+      toast('נכשל: ' + (result.error || 'unknown error'));
+    }
+  } catch (e) {
+    toast('שגיאה: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'הרץ עכשיו';
+}
+
+async function testSite(id, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span>';
+  try {
+    const { result } = await api(`/sites/${id}/test`, 'POST');
+    showTestResult(result);
+  } catch (e) {
+    toast('שגיאה: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'בדוק';
+}
+
+async function deleteSite(id, name) {
+  if (!confirm(`למחוק את "${name}"?`)) return;
+  await api(`/sites/${id}`, 'DELETE');
+  toast('נמחק');
+  loadSites();
+}
+
+function editSite(id) {
+  // For simplicity, redirect to wizard with edit mode
+  toast('כדי לערוך, מחק ויצור מחדש (עריכה מלאה בקרוב)');
+}
+
+// --- Wizard ---
+let loginStepCount = 0;
+let downloadStepCount = 0;
+
+function addLoginStep(preset = null) {
+  loginStepCount++;
+  const div = document.getElementById('loginSteps');
+  const n = loginStepCount;
+  const action = preset?.action || 'type';
+  const selector = preset?.selector || '';
+  const text = preset?.text || '';
+  const delay = preset?.delay || '';
+
+  div.innerHTML += `
+    <div class="step-item" id="ls-${n}">
+      <span class="step-num">${n}</span>
+      <div class="step-fields">
+        <select onchange="toggleStepFields(this, 'ls-${n}')">
+          <option value="type" ${action==='type'?'selected':''}>הקלד (type)</option>
+          <option value="click" ${action==='click'?'selected':''}>לחץ (click)</option>
+          <option value="wait" ${action==='wait'?'selected':''}>המתן (wait)</option>
+          <option value="pressKey" ${action==='pressKey'?'selected':''}>מקש (key)</option>
+          <option value="navigate" ${action==='navigate'?'selected':''}>נווט (navigate)</option>
+        </select>
+        <input class="input" placeholder="CSS Selector" value="${esc(selector)}" dir="ltr" style="min-width:180px;">
+        <input class="input step-text" placeholder="טקסט / {{username}}" value="${esc(text)}" dir="ltr" style="min-width:150px; ${action==='click'||action==='wait'?'display:none':''}">
+        <input class="input step-delay" placeholder="delay (ms)" value="${esc(delay)}" dir="ltr" style="width:80px;">
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="this.closest('.step-item').remove()">X</button>
+    </div>`;
+}
+
+function addDownloadStep(preset = null) {
+  downloadStepCount++;
+  const div = document.getElementById('downloadSteps');
+  const n = downloadStepCount;
+  const action = preset?.action || 'download';
+  const selector = preset?.selector || '';
+
+  div.innerHTML += `
+    <div class="step-item" id="ds-${n}">
+      <span class="step-num">${n}</span>
+      <div class="step-fields">
+        <select>
+          <option value="download" ${action==='download'?'selected':''}>הורד (download)</option>
+          <option value="downloadAll" ${action==='downloadAll'?'selected':''}>הורד הכל (downloadAll)</option>
+          <option value="click" ${action==='click'?'selected':''}>לחץ (click)</option>
+          <option value="navigate" ${action==='navigate'?'selected':''}>נווט (navigate)</option>
+          <option value="wait" ${action==='wait'?'selected':''}>המתן (wait)</option>
+        </select>
+        <input class="input" placeholder="CSS Selector / URL" value="${esc(selector)}" dir="ltr" style="min-width:250px;">
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="this.closest('.step-item').remove()">X</button>
+    </div>`;
+}
+
+function toggleStepFields(select, stepId) {
+  const textInput = document.querySelector(`#${stepId} .step-text`);
+  if (textInput) {
+    textInput.style.display = (select.value === 'click' || select.value === 'wait') ? 'none' : '';
+  }
+}
+
+function getStepsFromDOM(containerId) {
+  const steps = [];
+  document.querySelectorAll(`#${containerId} .step-item`).forEach(item => {
+    const fields = item.querySelectorAll('select, input');
+    const action = fields[0].value;
+    const selector = fields[1].value.trim();
+    const text = fields[2]?.value.trim() || '';
+    const delay = parseInt(fields[3]?.value) || 0;
+
+    const step = { action, selector };
+    if (text && action !== 'click' && action !== 'wait') step.text = text;
+    if (action === 'pressKey') { step.key = selector; delete step.selector; }
+    if (action === 'navigate') { step.url = selector; delete step.selector; }
+    if (action === 'wait' && !selector) step.time = parseInt(text) || 2000;
+    if (delay) step.delay = delay;
+    steps.push(step);
+  });
+  return steps;
+}
+
+function getDownloadStepsFromDOM() {
+  const steps = [];
+  document.querySelectorAll('#downloadSteps .step-item').forEach(item => {
+    const fields = item.querySelectorAll('select, input');
+    const action = fields[0].value;
+    const selector = fields[1].value.trim();
+    const step = { action };
+    if (action === 'navigate') step.url = selector;
+    else step.selector = selector;
+    steps.push(step);
+  });
+  return steps;
+}
+
+function buildSiteFromWizard() {
+  const site = {
+    name: document.getElementById('w-name').value.trim(),
+    loginUrl: document.getElementById('w-loginUrl').value.trim(),
+    invoicesUrl: document.getElementById('w-invoicesUrl').value.trim() || undefined,
+    loginWaitFor: document.getElementById('w-loginWaitFor').value.trim() || undefined,
+    credentials: {
+      username: document.getElementById('w-username').value,
+      password: document.getElementById('w-password').value
+    },
+    loginSteps: getStepsFromDOM('loginSteps'),
+    downloadSteps: getDownloadStepsFromDOM()
+  };
+
+  // Schedule
+  const schedType = document.getElementById('w-schedType').value;
+  if (schedType) {
+    site.schedule = { enabled: true };
+    const detailInput = document.querySelector('#schedDetails input');
+    if (schedType === 'interval') site.schedule.intervalHours = parseInt(detailInput?.value) || 24;
+    else if (schedType === 'daily') site.schedule.time = detailInput?.value || '09:00';
+    else if (schedType === 'monthly') {
+      site.schedule.dayOfMonth = parseInt(detailInput?.value) || 1;
+      site.schedule.time = '09:00';
+    }
+  }
+
+  return site;
+}
+
+async function saveSiteFromWizard() {
+  const site = buildSiteFromWizard();
+  if (!site.name) { toast('נא להזין שם אתר'); return; }
+  if (!site.loginUrl) { toast('נא להזין כתובת כניסה'); return; }
+
+  try {
+    await api('/sites', 'POST', site);
+    toast('האתר נשמר בהצלחה!');
+    resetWizard();
+    showTab('sites');
+    // Trigger loading sites tab
+    document.querySelector('.tab').click();
+  } catch (e) {
+    toast('שגיאה: ' + e.message);
+  }
+}
+
+async function testSiteFromWizard() {
+  const site = buildSiteFromWizard();
+  if (!site.loginUrl) { toast('נא להזין כתובת כניסה'); return; }
+
+  const resultDiv = document.getElementById('testResult');
+  const contentDiv = document.getElementById('testResultContent');
+  resultDiv.classList.remove('hidden');
+  contentDiv.innerHTML = '<div class="loading"></div> בודק חיבור...';
+
+  try {
+    const { result } = await api('/test', 'POST', site);
+    showTestResultInline(result, contentDiv);
+  } catch (e) {
+    contentDiv.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+  }
+}
+
+function showTestResultInline(result, container) {
+  let html = `<p><strong>סטטוס:</strong> <span class="badge ${result.success ? 'badge-success' : 'badge-danger'}">${result.success ? 'הצליח' : 'נכשל'}</span></p>`;
+  if (result.currentUrl) html += `<p><strong>URL נוכחי:</strong> <span dir="ltr">${esc(result.currentUrl)}</span></p>`;
+  if (result.title) html += `<p><strong>כותרת עמוד:</strong> ${esc(result.title)}</p>`;
+  if (result.error) html += `<p style="color:var(--danger);"><strong>שגיאה:</strong> ${esc(result.error)}</p>`;
+  if (result.steps) {
+    html += '<h4 style="margin:12px 0 6px;">שלבים:</h4>';
+    result.steps.forEach(s => {
+      html += `<p>${s.success ? '&#10003;' : '&#10007;'} ${esc(s.step)} ${s.error ? '- ' + esc(s.error) : ''}</p>`;
+    });
+  }
+  if (result.screenshot) {
+    html += `<img class="screenshot-preview" src="data:image/png;base64,${result.screenshot}" alt="screenshot">`;
+  }
+  container.innerHTML = html;
+}
+
+function showTestResult(result) {
+  const overlay = document.getElementById('editModal');
+  document.getElementById('editModalTitle').textContent = 'תוצאת בדיקה';
+  const content = document.getElementById('editModalContent');
+  showTestResultInline(result, content);
+  content.innerHTML += '<div class="modal-footer"><button class="btn btn-ghost" onclick="document.getElementById(\'editModal\').classList.add(\'hidden\')">סגור</button></div>';
+  overlay.classList.remove('hidden');
+}
+
+function resetWizard() {
+  ['w-name','w-loginUrl','w-invoicesUrl','w-loginWaitFor','w-username','w-password'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('loginSteps').innerHTML = '';
+  document.getElementById('downloadSteps').innerHTML = '';
+  document.getElementById('testResult').classList.add('hidden');
+  loginStepCount = 0;
+  downloadStepCount = 0;
+  document.getElementById('w-schedType').value = '';
+  document.getElementById('schedDetails').innerHTML = '';
+}
+
+// Schedule type change
+document.getElementById('w-schedType').addEventListener('change', function() {
+  const el = document.getElementById('schedDetails');
+  switch(this.value) {
+    case 'interval':
+      el.innerHTML = '<label>כל כמה שעות</label><input class="input" type="number" value="24" min="1">';
+      break;
+    case 'daily':
+      el.innerHTML = '<label>שעה (HH:MM)</label><input class="input" value="09:00" dir="ltr">';
+      break;
+    case 'monthly':
+      el.innerHTML = '<label>יום בחודש (1-28)</label><input class="input" type="number" value="1" min="1" max="28">';
+      break;
+    default:
+      el.innerHTML = '';
+  }
+});
+
+// --- History ---
+async function loadHistory() {
+  const { history } = await api('/history?limit=50');
+  const body = document.getElementById('historyBody');
+  if (!history || history.length === 0) {
+    body.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text2);">אין היסטוריה</td></tr>';
+    return;
+  }
+  body.innerHTML = history.map(h => `
+    <tr>
+      <td>${new Date(h.timestamp).toLocaleString('he-IL')}</td>
+      <td>${esc(h.siteName || h.siteId)}</td>
+      <td><span class="badge ${h.success ? 'badge-success' : 'badge-danger'}">${h.success ? 'הצליח' : 'נכשל'}</span></td>
+      <td>${h.downloadsCount || 0}</td>
+      <td>${h.executionTime ? (h.executionTime/1000).toFixed(1) + 's' : '-'}</td>
+      <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:11px; color:var(--danger);">${esc(h.error || '')}</td>
+    </tr>
+  `).join('');
+}
+
+// --- Downloads ---
+async function loadDownloadSites() {
+  const { sites } = await api('/sites');
+  const sel = document.getElementById('dlSiteSelect');
+  sel.innerHTML = '<option value="">בחר אתר...</option>' +
+    (sites||[]).map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+}
+
+async function loadDownloads() {
+  const siteId = document.getElementById('dlSiteSelect').value;
+  const div = document.getElementById('downloadsList');
+  if (!siteId) { div.innerHTML = '<div class="empty-state"><p>בחר אתר כדי לראות הורדות</p></div>'; return; }
+
+  const { files } = await api(`/sites/${siteId}/downloads`);
+  if (!files || files.length === 0) {
+    div.innerHTML = '<div class="empty-state"><p>אין קבצים שהורדו עבור אתר זה</p></div>';
+    return;
+  }
+
+  div.innerHTML = '<div class="card" style="padding:0; overflow:hidden;"><table class="history-table"><thead><tr><th>קובץ</th><th>גודל</th><th>תאריך</th><th></th></tr></thead><tbody>' +
+    files.map(f => `
+      <tr>
+        <td>${esc(f.filename)}</td>
+        <td>${(f.size / 1024).toFixed(1)} KB</td>
+        <td>${new Date(f.createdAt).toLocaleString('he-IL')}</td>
+        <td><a href="${API_BASE}/sites/${siteId}/downloads/${encodeURIComponent(f.filename)}?key=${API_KEY}" class="btn btn-primary btn-sm" target="_blank">הורד</a></td>
+      </tr>
+    `).join('') +
+    '</tbody></table></div>';
+}
+
+// --- Scheduler Status ---
+async function loadSchedulerStatus() {
+  try {
+    const { scheduler } = await api('/scheduler/status');
+    document.getElementById('schedulerDot').style.background = scheduler.running ? 'var(--success)' : 'var(--text2)';
+    document.getElementById('schedulerStatus').textContent = `Scheduler: ${scheduler.count} sites`;
+  } catch {
+    document.getElementById('schedulerStatus').textContent = 'Scheduler: offline';
+    document.getElementById('schedulerDot').style.background = 'var(--danger)';
+  }
+}
+
+// --- Helpers ---
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+// --- Interactive Explorer (Multi-Screen Analyzer) ---
+let explorerSessionId = null;
+let explorerScreens = [];  // breadcrumb trail
+let lastAnalysis = null;
+// Track which step type we're collecting: 'login' or 'download'
+let explorerPhase = 'login';
+
+async function startExplorer() {
+  const url = document.getElementById('analyzeUrl').value.trim();
+  if (!url) { toast('הזן כתובת אתר'); return; }
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="loading"></span> פותח...';
+
+  try {
+    const res = await api('/session/start', 'POST', { url });
+    if (!res.success) throw new Error(res.error);
+    explorerSessionId = res.sessionId;
+    explorerScreens = [{ url: res.currentUrl, title: res.title }];
+    explorerPhase = 'login';
+    lastAnalysis = res;
+
+    // Auto-fill wizard fields
+    document.getElementById('w-loginUrl').value = res.currentUrl || url;
+    if (res.title) {
+      const nameField = document.getElementById('w-name');
+      if (!nameField.value) nameField.value = res.title.substring(0, 50);
+    }
+
+    document.getElementById('explorerPanel').classList.remove('hidden');
+    document.getElementById('analysisResult').classList.add('hidden');
+    renderExplorerScreen(res);
+  } catch (e) {
+    toast('שגיאה: ' + e.message);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'התחל סיור';
+}
+
+async function explorerDoAction(action, description) {
+  if (!explorerSessionId) return;
+
+  const screen = document.getElementById('explorerScreen');
+  screen.innerHTML = `<p style="color:var(--text2);"><span class="loading"></span> מבצע: ${esc(description)}...</p>`;
+
+  try {
+    const res = await api(`/session/${explorerSessionId}/action`, 'POST', action);
+    if (!res.success) throw new Error(res.error);
+    lastAnalysis = res;
+    explorerScreens.push({ url: res.currentUrl, title: res.title, action: description });
+    renderExplorerScreen(res);
+  } catch (e) {
+    screen.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+    toast('הפעולה נכשלה: ' + e.message);
+  }
+}
+
+async function explorerRescan() {
+  if (!explorerSessionId) return;
+  const screen = document.getElementById('explorerScreen');
+  screen.innerHTML = `<p style="color:var(--text2);"><span class="loading"></span> סורק...</p>`;
+  try {
+    const res = await api(`/session/${explorerSessionId}/scan`, 'POST');
+    if (!res.success) throw new Error(res.error);
+    lastAnalysis = res;
+    renderExplorerScreen(res);
+  } catch (e) {
+    screen.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+  }
+}
+
+async function closeExplorer() {
+  if (explorerSessionId) {
+    api(`/session/${explorerSessionId}/close`, 'POST').catch(() => {});
+    explorerSessionId = null;
+  }
+  document.getElementById('explorerPanel').classList.add('hidden');
+  explorerScreens = [];
+}
+
+function renderExplorerScreen(a) {
+  // Breadcrumbs
+  const bc = document.getElementById('explorerBreadcrumbs');
+  bc.innerHTML = explorerScreens.map((s, i) => {
+    const isCurrent = i === explorerScreens.length - 1;
+    const label = s.title || new URL(s.url).pathname;
+    return `<span style="padding:3px 8px; border-radius:6px; font-size:11px; ${isCurrent ? 'background:var(--primary); color:white;' : 'background:var(--surface2); color:var(--text2);'}">${i+1}. ${esc(label.substring(0, 25))}</span>`;
+  }).join('<span style="color:var(--text2);">&larr;</span>');
+
+  // Phase selector
+  const phaseHtml = `<div style="display:flex; gap:6px; margin-bottom:12px;">
+    <button class="btn btn-sm ${explorerPhase === 'login' ? 'btn-primary' : 'btn-ghost'}" onclick="explorerPhase='login'; toast('שלבים יתווספו ל-Login')">שלב Login</button>
+    <button class="btn btn-sm ${explorerPhase === 'download' ? 'btn-primary' : 'btn-ghost'}" onclick="explorerPhase='download'; toast('שלבים יתווספו להורדה')">שלב הורדה</button>
+  </div>`;
+
+  let html = phaseHtml;
+
+  // Screenshot
+  if (a.screenshot) {
+    html += `<img class="screenshot-preview" src="data:image/png;base64,${a.screenshot}" alt="screenshot" style="max-height:250px; margin-bottom:12px;">`;
+  }
+
+  html += `<p style="font-size:12px; color:var(--text2); margin-bottom:12px;">
+    <strong style="color:var(--text);">${esc(a.title || '')}</strong><br>
+    <span dir="ltr">${esc(a.currentUrl || '')}</span>
+  </p>`;
+
+  // --- Forms found ---
+  if (a.forms && a.forms.length > 0) {
+    html += `<div class="analysis-section"><h4>טפסים <span class="count-badge">${a.forms.length}</span></h4>`;
+    a.forms.forEach((form) => {
+      const typeLabel = { login: 'Login', email_only_login: 'Login (אימייל)', otp_verification: 'OTP', unknown: 'טופס' }[form.formType] || form.formType;
+      html += `<div class="suggestion-card"><h4>${typeLabel} ${form.isLoose ? '(SPA)' : ''}</h4>`;
+
+      form.inputs.forEach(inp => {
+        const purposeHe = { email: 'אימייל', username: 'שם משתמש', password: 'סיסמה', phone: 'טלפון', otp: 'קוד', unknown: '' }[inp.purpose] || '';
+        const btnLabel = inp.purpose === 'password' ? '{{password}}' : inp.purpose === 'email' || inp.purpose === 'username' ? '{{username}}' : '';
+        html += `<div style="margin:4px 0; font-size:12px; display:flex; align-items:center; gap:6px;">
+          <span class="badge ${inp.purpose !== 'unknown' ? 'badge-success' : 'badge-warning'}">${purposeHe || inp.type}</span>
+          <code>${esc(inp.selector)}</code>
+          ${inp.label ? `<span style="color:var(--text2);">${esc(inp.label)}</span>` : ''}
+          ${inp.selector ? `<button class="btn btn-primary btn-sm" onclick="addStepFromExplorer('type', '${escAttr(inp.selector)}', '${escAttr(btnLabel)}', 'הקלדה: ${escAttr(inp.label || inp.purpose)}')">+ הוסף שלב</button>` : ''}
+        </div>`;
+      });
+
+      form.buttons.forEach(b => {
+        html += `<div style="margin:4px 0; font-size:12px; display:flex; align-items:center; gap:6px;">
+          <span class="badge badge-info">כפתור</span>
+          <code>${esc(b.selector)}</code>
+          <span style="color:var(--text2);">${esc(b.text)}</span>
+          ${b.selector ? `<button class="btn btn-primary btn-sm" onclick="addStepFromExplorer('click', '${escAttr(b.selector)}', '', 'לחיצה: ${escAttr(b.text)}')">+ הוסף שלב</button>
+          <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(b.selector)}'}, 'לחיצה על ${escAttr(b.text)}')">לחץ ועבור &larr;</button>` : ''}
+        </div>`;
+      });
+      html += `</div>`;
+    });
+    html += `</div>`;
+
+    // Quick: use all suggested login steps
+    if (a.suggestedLoginSteps && a.suggestedLoginSteps.length > 0) {
+      html += `<button class="btn btn-success btn-sm" style="margin:8px 0;" onclick="applySuggestedLoginSteps()">מלא שלבי Login אוטומטית</button> `;
+    }
+  }
+
+  // --- Clickable elements for navigation ---
+  if (a.clickableElements && a.clickableElements.length > 0) {
+    const relevant = a.clickableElements.filter(e => e.category === 'relevant');
+    const nav = a.clickableElements.filter(e => e.category === 'navigation' || e.category === 'menu' || e.category === 'tab');
+
+    if (relevant.length > 0) {
+      html += `<div class="analysis-section"><h4>אלמנטים רלוונטיים (חשבוניות, חיובים...) <span class="count-badge">${relevant.length}</span></h4>`;
+      relevant.forEach(el => {
+        html += `<div class="nav-link-item">
+          <div><span class="link-text">${esc(el.text)}</span> <code style="font-size:10px;">${esc(el.selector)}</code></div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (nav.length > 0) {
+      html += `<div class="analysis-section"><h4>ניווט ותפריטים <span class="count-badge">${nav.length}</span></h4>`;
+      nav.forEach(el => {
+        html += `<div class="nav-link-item">
+          <div><span class="link-text">${esc(el.text)}</span> <span class="badge badge-info" style="font-size:10px;">${el.category}</span></div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+  }
+
+  // --- Navigation links ---
+  if (a.navigation && a.navigation.length > 0) {
+    html += `<div class="analysis-section"><h4>לינקים רלוונטיים <span class="count-badge">${a.navigation.length}</span></h4>`;
+    a.navigation.forEach(nav => {
+      html += `<div class="nav-link-item">
+        <div><span class="link-text">${esc(nav.text)}</span><br><span class="link-url">${esc(nav.href)}</span></div>
+        <div style="display:flex; gap:4px;">
+          <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'navigate',url:'${escAttr(nav.href)}'}, 'נווט ל-${escAttr(nav.text)}')">עבור &larr;</button>
+          <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('navigate', '${escAttr(nav.href)}', '', 'נווט: ${escAttr(nav.text)}')">+ שלב</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // --- Download links ---
+  if (a.downloadLinks && a.downloadLinks.length > 0) {
+    html += `<div class="analysis-section"><h4>כפתורי הורדה <span class="count-badge">${a.downloadLinks.length}</span></h4>`;
+    a.downloadLinks.forEach(dl => {
+      html += `<div class="suggestion-card">
+        <h4>${dl.isButton ? 'כפתור' : 'לינק'}: ${esc(dl.text || 'ללא טקסט')}
+          ${dl.fileType !== 'unknown' ? `<span class="badge badge-warning">${dl.fileType.toUpperCase()}</span>` : ''}
+        </h4>
+        <code>${esc(dl.selector)}</code>
+        ${dl.href ? `<div class="desc" dir="ltr">${esc(dl.href)}</div>` : ''}
+        <div style="margin-top:6px;">
+          <button class="btn btn-success btn-sm" onclick="addStepFromExplorer('download', '${escAttr(dl.selector)}', '', 'הורדה: ${escAttr(dl.text)}')">+ הוסף כשלב הורדה</button>
+          <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('downloadAll', '${escAttr(dl.selector)}', '', 'הורד הכל: ${escAttr(dl.text)}')">+ הורד הכל</button>
+        </div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  // Nothing found
+  if ((!a.forms || a.forms.length === 0) && (!a.downloadLinks || a.downloadLinks.length === 0) && (!a.clickableElements || a.clickableElements.length === 0) && (!a.navigation || a.navigation.length === 0)) {
+    html += `<div style="padding:16px; background:var(--bg); border-radius:8px; text-align:center;">
+      <p style="color:var(--warning);">לא נמצאו אלמנטים מעניינים בעמוד זה.</p>
+      <p style="color:var(--text2); font-size:12px; margin-top:4px;">נסה לנווט ידנית:</p>
+      <div style="display:flex; gap:6px; justify-content:center; margin-top:8px;">
+        <input class="input" id="manualNavUrl" placeholder="https://..." dir="ltr" style="max-width:300px;">
+        <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl').value}, 'ניווט ידני')">עבור</button>
+      </div>
+    </div>`;
+  }
+
+  // Manual navigation always available
+  html += `<div style="margin-top:12px; padding:10px; background:var(--bg); border-radius:8px;">
+    <div style="display:flex; gap:6px; align-items:center;">
+      <span style="font-size:12px; color:var(--text2); white-space:nowrap;">ניווט ידני:</span>
+      <input class="input" id="manualNavUrl2" placeholder="https://..." dir="ltr" style="font-size:12px; padding:6px;">
+      <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl2').value}, 'ניווט ידני')">עבור</button>
+    </div>
+  </div>`;
+
+  document.getElementById('explorerScreen').innerHTML = html;
+}
+
+function addStepFromExplorer(action, selectorOrUrl, text, description) {
+  if (explorerPhase === 'login') {
+    if (action === 'navigate') {
+      addLoginStep({ action: 'navigate', selector: selectorOrUrl, text: '' });
+    } else {
+      addLoginStep({ action, selector: selectorOrUrl, text: text || '' });
+    }
+    toast(`שלב Login נוסף: ${description}`);
+  } else {
+    if (action === 'navigate') {
+      addDownloadStep({ action: 'navigate', selector: selectorOrUrl });
+      document.getElementById('w-invoicesUrl').value = selectorOrUrl;
+    } else {
+      addDownloadStep({ action, selector: selectorOrUrl });
+    }
+    toast(`שלב הורדה נוסף: ${description}`);
+  }
+}
+
+function applySuggestedLoginSteps() {
+  if (!lastAnalysis || !lastAnalysis.suggestedLoginSteps) return;
+  document.getElementById('loginSteps').innerHTML = '';
+  loginStepCount = 0;
+  lastAnalysis.suggestedLoginSteps.forEach(step => {
+    addLoginStep({ action: step.action, selector: step.selector || step.url || '', text: step.text || '' });
+  });
+  toast('שלבי Login מולאו אוטומטית!');
+}
+
+function applySuggestedDownloadSteps() {
+  if (!lastAnalysis || !lastAnalysis.suggestedDownloadSteps) return;
+  document.getElementById('downloadSteps').innerHTML = '';
+  downloadStepCount = 0;
+  lastAnalysis.suggestedDownloadSteps.forEach(step => {
+    addDownloadStep({ action: step.action, selector: step.selector || step.url || '' });
+  });
+  if (lastAnalysis.suggestedDownloadSteps[0]?.url) {
+    document.getElementById('w-invoicesUrl').value = lastAnalysis.suggestedDownloadSteps[0].url;
+  }
+  toast('שלבי הורדה מולאו אוטומטית!');
+}
+
+function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// Sync analyze URL with login URL
+document.getElementById('analyzeUrl')?.addEventListener('input', function() {
+  const loginField = document.getElementById('w-loginUrl');
+  if (!loginField.value) loginField.value = this.value;
+});
+
+// --- Init ---
+(async function init() {
+  // Add default login steps for convenience
+  addLoginStep({ action: 'type', selector: '#email, input[type="email"]', text: '{{username}}' });
+  addLoginStep({ action: 'type', selector: '#password, input[type="password"]', text: '{{password}}' });
+  addLoginStep({ action: 'click', selector: 'button[type="submit"]' });
+  addDownloadStep({ action: 'download', selector: '.download-btn, a[href*="invoice"]' });
+
+  loadSites();
+  loadSchedulerStatus();
+})();
+</script>
+
+</body>
+</html>
