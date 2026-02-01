@@ -42,6 +42,8 @@ COPY services/ ./services/
 COPY utils/ ./utils/
 COPY helpers/ ./helpers/
 COPY scripts/ ./scripts/
+COPY public/ ./public/
+COPY data/ ./data/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p downloads tmp logs screenshots && \
