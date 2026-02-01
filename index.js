@@ -49,7 +49,10 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files for invoice dashboard (before auth)
+// Invoice dashboard - serve index.html for /invoices and static files
+app.get('/invoices', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'invoices', 'index.html'));
+});
 app.use('/invoices', express.static(path.join(__dirname, 'public', 'invoices')));
 
 // Static files for screenshots (לפני auth!)
