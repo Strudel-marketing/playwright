@@ -49,8 +49,12 @@ app.use(cors());
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '50mb' }));
 
-// Invoice dashboard - serve index.html for /invoices and static files
+// Invoice dashboard - serve index.html for /invoices (requires ?key= param)
 app.get('/invoices', (req, res) => {
+    const key = req.query.key;
+    if (!key || key !== process.env.API_KEY) {
+        return res.status(401).send('Unauthorized - append ?key=YOUR_API_KEY to the URL');
+    }
     res.sendFile(path.join(__dirname, 'public', 'invoices', 'index.html'));
 });
 app.use('/invoices', express.static(path.join(__dirname, 'public', 'invoices')));
