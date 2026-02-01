@@ -153,15 +153,29 @@
         הגדר את השלבים שהדפדפן צריך לבצע כדי להגיע לחשבוניות ולהוריד אותן.
       </p>
 
-      <!-- Smart Analyzer -->
+      <!-- Smart Analyzer - Interactive Multi-Screen Explorer -->
       <div class="analyzer-box">
-        <h3>זיהוי אוטומטי</h3>
+        <h3>סייר אינטראקטיבי</h3>
         <p style="color:var(--text2); font-size:13px; margin-top:4px;">
-          הזן כתובת אתר ואנחנו ננתח אותו בשבילך - נמצא טפסי login, כפתורי הורדה, ולינקים לעמודי חשבוניות.
+          הזן כתובת ונתחיל לסייר באתר יחד. בכל מסך תראה מה יש בעמוד ותוכל לבחור לאן להמשיך -
+          עד שתגיע לעמוד החשבוניות. כל פעולה שתבחר תתווסף אוטומטית לשלבים.
         </p>
         <div class="analyzer-url-row">
           <input class="input" id="analyzeUrl" placeholder="https://example.com/login" dir="ltr">
-          <button class="btn btn-primary" id="analyzeBtn" onclick="analyzeUrl()">נתח אתר</button>
+          <button class="btn btn-primary" id="analyzeBtn" onclick="startExplorer()">התחל סיור</button>
+        </div>
+        <div id="explorerPanel" class="hidden" style="margin-top:16px;">
+          <!-- Breadcrumb trail of visited screens -->
+          <div id="explorerBreadcrumbs" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+
+          <!-- Current page info -->
+          <div id="explorerScreen"></div>
+
+          <!-- Action bar -->
+          <div id="explorerActions" style="display:flex; gap:6px; flex-wrap:wrap; margin-top:12px;">
+            <button class="btn btn-ghost btn-sm" onclick="explorerRescan()">סרוק מחדש</button>
+            <button class="btn btn-danger btn-sm" onclick="closeExplorer()">סגור סיור</button>
+          </div>
         </div>
         <div id="analysisResult" class="hidden" style="margin-top:16px;"></div>
       </div>
@@ -666,195 +680,287 @@ async function loadSchedulerStatus() {
 // --- Helpers ---
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
-// --- Site Analyzer ---
+// --- Interactive Explorer (Multi-Screen Analyzer) ---
+let explorerSessionId = null;
+let explorerScreens = [];  // breadcrumb trail
 let lastAnalysis = null;
+// Track which step type we're collecting: 'login' or 'download'
+let explorerPhase = 'login';
 
-async function analyzeUrl() {
+async function startExplorer() {
   const url = document.getElementById('analyzeUrl').value.trim();
   if (!url) { toast('הזן כתובת אתר'); return; }
 
   const btn = document.getElementById('analyzeBtn');
   btn.disabled = true;
-  btn.innerHTML = '<span class="loading"></span> מנתח...';
-
-  const resultDiv = document.getElementById('analysisResult');
-  resultDiv.classList.remove('hidden');
-  resultDiv.innerHTML = '<p style="color:var(--text2);"><span class="loading"></span> הדפדפן נכנס לאתר ומנתח את המבנה שלו... זה עשוי לקחת כמה שניות.</p>';
+  btn.innerHTML = '<span class="loading"></span> פותח...';
 
   try {
-    const { analysis } = await api('/analyze', 'POST', { url });
-    lastAnalysis = analysis;
-    renderAnalysis(analysis, resultDiv);
+    const res = await api('/session/start', 'POST', { url });
+    if (!res.success) throw new Error(res.error);
+    explorerSessionId = res.sessionId;
+    explorerScreens = [{ url: res.currentUrl, title: res.title }];
+    explorerPhase = 'login';
+    lastAnalysis = res;
 
-    // Auto-fill the URL fields
-    document.getElementById('w-loginUrl').value = analysis.finalUrl || url;
-    if (analysis.title) {
+    // Auto-fill wizard fields
+    document.getElementById('w-loginUrl').value = res.currentUrl || url;
+    if (res.title) {
       const nameField = document.getElementById('w-name');
-      if (!nameField.value) nameField.value = analysis.title.substring(0, 50);
+      if (!nameField.value) nameField.value = res.title.substring(0, 50);
     }
+
+    document.getElementById('explorerPanel').classList.remove('hidden');
+    document.getElementById('analysisResult').classList.add('hidden');
+    renderExplorerScreen(res);
   } catch (e) {
-    resultDiv.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+    toast('שגיאה: ' + e.message);
   }
 
   btn.disabled = false;
-  btn.textContent = 'נתח אתר';
+  btn.textContent = 'התחל סיור';
 }
 
-function renderAnalysis(a, container) {
-  let html = '';
+async function explorerDoAction(action, description) {
+  if (!explorerSessionId) return;
+
+  const screen = document.getElementById('explorerScreen');
+  screen.innerHTML = `<p style="color:var(--text2);"><span class="loading"></span> מבצע: ${esc(description)}...</p>`;
+
+  try {
+    const res = await api(`/session/${explorerSessionId}/action`, 'POST', action);
+    if (!res.success) throw new Error(res.error);
+    lastAnalysis = res;
+    explorerScreens.push({ url: res.currentUrl, title: res.title, action: description });
+    renderExplorerScreen(res);
+  } catch (e) {
+    screen.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+    toast('הפעולה נכשלה: ' + e.message);
+  }
+}
+
+async function explorerRescan() {
+  if (!explorerSessionId) return;
+  const screen = document.getElementById('explorerScreen');
+  screen.innerHTML = `<p style="color:var(--text2);"><span class="loading"></span> סורק...</p>`;
+  try {
+    const res = await api(`/session/${explorerSessionId}/scan`, 'POST');
+    if (!res.success) throw new Error(res.error);
+    lastAnalysis = res;
+    renderExplorerScreen(res);
+  } catch (e) {
+    screen.innerHTML = `<p style="color:var(--danger);">שגיאה: ${esc(e.message)}</p>`;
+  }
+}
+
+async function closeExplorer() {
+  if (explorerSessionId) {
+    api(`/session/${explorerSessionId}/close`, 'POST').catch(() => {});
+    explorerSessionId = null;
+  }
+  document.getElementById('explorerPanel').classList.add('hidden');
+  explorerScreens = [];
+}
+
+function renderExplorerScreen(a) {
+  // Breadcrumbs
+  const bc = document.getElementById('explorerBreadcrumbs');
+  bc.innerHTML = explorerScreens.map((s, i) => {
+    const isCurrent = i === explorerScreens.length - 1;
+    const label = s.title || new URL(s.url).pathname;
+    return `<span style="padding:3px 8px; border-radius:6px; font-size:11px; ${isCurrent ? 'background:var(--primary); color:white;' : 'background:var(--surface2); color:var(--text2);'}">${i+1}. ${esc(label.substring(0, 25))}</span>`;
+  }).join('<span style="color:var(--text2);">&larr;</span>');
+
+  // Phase selector
+  const phaseHtml = `<div style="display:flex; gap:6px; margin-bottom:12px;">
+    <button class="btn btn-sm ${explorerPhase === 'login' ? 'btn-primary' : 'btn-ghost'}" onclick="explorerPhase='login'; toast('שלבים יתווספו ל-Login')">שלב Login</button>
+    <button class="btn btn-sm ${explorerPhase === 'download' ? 'btn-primary' : 'btn-ghost'}" onclick="explorerPhase='download'; toast('שלבים יתווספו להורדה')">שלב הורדה</button>
+  </div>`;
+
+  let html = phaseHtml;
 
   // Screenshot
   if (a.screenshot) {
-    html += `<img class="screenshot-preview" src="data:image/png;base64,${a.screenshot}" alt="screenshot" style="max-height:250px; margin-bottom:16px;">`;
+    html += `<img class="screenshot-preview" src="data:image/png;base64,${a.screenshot}" alt="screenshot" style="max-height:250px; margin-bottom:12px;">`;
   }
 
-  if (a.error) {
-    html += `<p style="color:var(--danger);">שגיאה בניתוח: ${esc(a.error)}</p>`;
-  }
+  html += `<p style="font-size:12px; color:var(--text2); margin-bottom:12px;">
+    <strong style="color:var(--text);">${esc(a.title || '')}</strong><br>
+    <span dir="ltr">${esc(a.currentUrl || '')}</span>
+  </p>`;
 
-  html += `<p style="font-size:12px; color:var(--text2);">כותרת: <strong style="color:var(--text);">${esc(a.title || '')}</strong></p>`;
-
-  // --- Suggested Login Steps ---
-  if (a.suggestedLoginSteps && a.suggestedLoginSteps.length > 0) {
-    html += `<div class="analysis-section">`;
-    html += `<h4>שלבי Login מוצעים <span class="count-badge">${a.suggestedLoginSteps.length}</span></h4>`;
-    html += `<p style="font-size:12px; color:var(--text2); margin-bottom:8px;">לחץ כדי למלא אותם אוטומטית בטופס למטה:</p>`;
-
-    a.suggestedLoginSteps.forEach((step, i) => {
-      const icon = step.action === 'type' ? 'הקלדה' : step.action === 'click' ? 'לחיצה' : step.action;
-      html += `<div class="suggestion-card" onclick="applySuggestedLoginSteps()">`;
-      html += `<h4>${i + 1}. ${icon}</h4>`;
-      html += `<code>${esc(step.selector || step.url || '')}</code>`;
-      if (step.text) html += ` &larr; <code>${esc(step.text)}</code>`;
-      if (step.description) html += `<div class="desc">${esc(step.description)}</div>`;
-      html += `</div>`;
-    });
-
-    html += `<button class="btn btn-success btn-sm" style="margin-top:8px;" onclick="applySuggestedLoginSteps()">השתמש בשלבים אלו</button>`;
-    html += `</div>`;
-  }
-
-  // --- Detected Forms ---
+  // --- Forms found ---
   if (a.forms && a.forms.length > 0) {
-    html += `<div class="analysis-section">`;
-    html += `<h4>טפסים שזוהו <span class="count-badge">${a.forms.length}</span></h4>`;
-
-    a.forms.forEach((form, fi) => {
-      const typeLabel = { login: 'Login', email_only_login: 'Login (אימייל בלבד)', otp_verification: 'OTP', unknown: 'טופס' }[form.formType] || form.formType;
-      html += `<div class="suggestion-card">`;
-      html += `<h4>טופס ${fi + 1}: ${typeLabel} ${form.isLoose ? '(ללא תג form)' : ''}</h4>`;
+    html += `<div class="analysis-section"><h4>טפסים <span class="count-badge">${a.forms.length}</span></h4>`;
+    a.forms.forEach((form) => {
+      const typeLabel = { login: 'Login', email_only_login: 'Login (אימייל)', otp_verification: 'OTP', unknown: 'טופס' }[form.formType] || form.formType;
+      html += `<div class="suggestion-card"><h4>${typeLabel} ${form.isLoose ? '(SPA)' : ''}</h4>`;
 
       form.inputs.forEach(inp => {
-        const purposeHe = { email: 'אימייל', username: 'שם משתמש', password: 'סיסמה', phone: 'טלפון', otp: 'קוד אימות', unknown: '' }[inp.purpose] || '';
-        html += `<div style="margin: 4px 0; font-size: 12px;">`;
-        html += `<span class="badge ${inp.purpose !== 'unknown' ? 'badge-success' : 'badge-warning'}">${purposeHe || inp.type}</span> `;
-        html += `<code>${esc(inp.selector)}</code>`;
-        if (inp.label) html += ` <span style="color:var(--text2);">${esc(inp.label)}</span>`;
-        if (inp.placeholder) html += ` <span style="color:var(--text2); font-style:italic;">"${esc(inp.placeholder)}"</span>`;
-        html += `</div>`;
+        const purposeHe = { email: 'אימייל', username: 'שם משתמש', password: 'סיסמה', phone: 'טלפון', otp: 'קוד', unknown: '' }[inp.purpose] || '';
+        const btnLabel = inp.purpose === 'password' ? '{{password}}' : inp.purpose === 'email' || inp.purpose === 'username' ? '{{username}}' : '';
+        html += `<div style="margin:4px 0; font-size:12px; display:flex; align-items:center; gap:6px;">
+          <span class="badge ${inp.purpose !== 'unknown' ? 'badge-success' : 'badge-warning'}">${purposeHe || inp.type}</span>
+          <code>${esc(inp.selector)}</code>
+          ${inp.label ? `<span style="color:var(--text2);">${esc(inp.label)}</span>` : ''}
+          ${inp.selector ? `<button class="btn btn-primary btn-sm" onclick="addStepFromExplorer('type', '${escAttr(inp.selector)}', '${escAttr(btnLabel)}', 'הקלדה: ${escAttr(inp.label || inp.purpose)}')">+ הוסף שלב</button>` : ''}
+        </div>`;
       });
 
-      form.buttons.forEach(btn => {
-        html += `<div style="margin: 4px 0; font-size: 12px;">`;
-        html += `<span class="badge badge-info">כפתור</span> `;
-        html += `<code>${esc(btn.selector)}</code>`;
-        html += ` <span style="color:var(--text2);">${esc(btn.text)}</span>`;
-        html += `</div>`;
+      form.buttons.forEach(b => {
+        html += `<div style="margin:4px 0; font-size:12px; display:flex; align-items:center; gap:6px;">
+          <span class="badge badge-info">כפתור</span>
+          <code>${esc(b.selector)}</code>
+          <span style="color:var(--text2);">${esc(b.text)}</span>
+          ${b.selector ? `<button class="btn btn-primary btn-sm" onclick="addStepFromExplorer('click', '${escAttr(b.selector)}', '', 'לחיצה: ${escAttr(b.text)}')">+ הוסף שלב</button>
+          <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(b.selector)}'}, 'לחיצה על ${escAttr(b.text)}')">לחץ ועבור &larr;</button>` : ''}
+        </div>`;
       });
-
       html += `</div>`;
     });
     html += `</div>`;
-  }
 
-  // --- Navigation Links ---
-  if (a.navigation && a.navigation.length > 0) {
-    html += `<div class="analysis-section">`;
-    html += `<h4>לינקים רלוונטיים (חשבוניות, תשלומים...) <span class="count-badge">${a.navigation.length}</span></h4>`;
-
-    a.navigation.forEach(nav => {
-      html += `<div class="nav-link-item">`;
-      html += `<div><span class="link-text">${esc(nav.text)}</span><br><span class="link-url">${esc(nav.href)}</span></div>`;
-      html += `<button class="btn btn-ghost btn-sm" onclick="useNavLink('${esc(nav.href)}', '${esc(nav.selector)}')">השתמש</button>`;
-      html += `</div>`;
-    });
-    html += `</div>`;
-  }
-
-  // --- Download Links ---
-  if (a.downloadLinks && a.downloadLinks.length > 0) {
-    html += `<div class="analysis-section">`;
-    html += `<h4>כפתורי/לינקי הורדה <span class="count-badge">${a.downloadLinks.length}</span></h4>`;
-
-    a.downloadLinks.forEach(dl => {
-      html += `<div class="suggestion-card" onclick="useDownloadLink('${esc(dl.selector)}', '${dl.isButton ? 'download' : 'download'}')">`;
-      html += `<h4>${dl.isButton ? 'כפתור' : 'לינק'}: ${esc(dl.text || 'ללא טקסט')}</h4>`;
-      html += `<code>${esc(dl.selector)}</code>`;
-      if (dl.fileType !== 'unknown') html += ` <span class="badge badge-warning">${dl.fileType.toUpperCase()}</span>`;
-      if (dl.href) html += `<div class="desc" dir="ltr">${esc(dl.href)}</div>`;
-      html += `</div>`;
-    });
-
-    if (a.suggestedDownloadSteps && a.suggestedDownloadSteps.length > 0) {
-      html += `<button class="btn btn-success btn-sm" style="margin-top:8px;" onclick="applySuggestedDownloadSteps()">השתמש בהמלצות ההורדה</button>`;
+    // Quick: use all suggested login steps
+    if (a.suggestedLoginSteps && a.suggestedLoginSteps.length > 0) {
+      html += `<button class="btn btn-success btn-sm" style="margin:8px 0;" onclick="applySuggestedLoginSteps()">מלא שלבי Login אוטומטית</button> `;
     }
+  }
+
+  // --- Clickable elements for navigation ---
+  if (a.clickableElements && a.clickableElements.length > 0) {
+    const relevant = a.clickableElements.filter(e => e.category === 'relevant');
+    const nav = a.clickableElements.filter(e => e.category === 'navigation' || e.category === 'menu' || e.category === 'tab');
+
+    if (relevant.length > 0) {
+      html += `<div class="analysis-section"><h4>אלמנטים רלוונטיים (חשבוניות, חיובים...) <span class="count-badge">${relevant.length}</span></h4>`;
+      relevant.forEach(el => {
+        html += `<div class="nav-link-item">
+          <div><span class="link-text">${esc(el.text)}</span> <code style="font-size:10px;">${esc(el.selector)}</code></div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+
+    if (nav.length > 0) {
+      html += `<div class="analysis-section"><h4>ניווט ותפריטים <span class="count-badge">${nav.length}</span></h4>`;
+      nav.forEach(el => {
+        html += `<div class="nav-link-item">
+          <div><span class="link-text">${esc(el.text)}</span> <span class="badge badge-info" style="font-size:10px;">${el.category}</span></div>
+          <div style="display:flex; gap:4px;">
+            <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'click',selector:'${escAttr(el.selector)}'}, '${escAttr(el.text)}')">לחץ ועבור &larr;</button>
+            <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('click', '${escAttr(el.selector)}', '', '${escAttr(el.text)}')">+ שלב</button>
+          </div>
+        </div>`;
+      });
+      html += `</div>`;
+    }
+  }
+
+  // --- Navigation links ---
+  if (a.navigation && a.navigation.length > 0) {
+    html += `<div class="analysis-section"><h4>לינקים רלוונטיים <span class="count-badge">${a.navigation.length}</span></h4>`;
+    a.navigation.forEach(nav => {
+      html += `<div class="nav-link-item">
+        <div><span class="link-text">${esc(nav.text)}</span><br><span class="link-url">${esc(nav.href)}</span></div>
+        <div style="display:flex; gap:4px;">
+          <button class="btn btn-warning btn-sm" onclick="explorerDoAction({type:'navigate',url:'${escAttr(nav.href)}'}, 'נווט ל-${escAttr(nav.text)}')">עבור &larr;</button>
+          <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('navigate', '${escAttr(nav.href)}', '', 'נווט: ${escAttr(nav.text)}')">+ שלב</button>
+        </div>
+      </div>`;
+    });
     html += `</div>`;
   }
 
-  // No forms or downloads found
-  if ((!a.forms || a.forms.length === 0) && (!a.downloadLinks || a.downloadLinks.length === 0)) {
-    html += `<div style="margin-top:12px; padding:16px; background:var(--bg); border-radius:8px; text-align:center;">`;
-    html += `<p style="color:var(--warning);">לא נמצאו טפסים או לינקי הורדה בעמוד זה.</p>`;
-    html += `<p style="color:var(--text2); font-size:12px; margin-top:4px;">נסה כתובת אחרת, או הזן את השלבים ידנית למטה.</p>`;
+  // --- Download links ---
+  if (a.downloadLinks && a.downloadLinks.length > 0) {
+    html += `<div class="analysis-section"><h4>כפתורי הורדה <span class="count-badge">${a.downloadLinks.length}</span></h4>`;
+    a.downloadLinks.forEach(dl => {
+      html += `<div class="suggestion-card">
+        <h4>${dl.isButton ? 'כפתור' : 'לינק'}: ${esc(dl.text || 'ללא טקסט')}
+          ${dl.fileType !== 'unknown' ? `<span class="badge badge-warning">${dl.fileType.toUpperCase()}</span>` : ''}
+        </h4>
+        <code>${esc(dl.selector)}</code>
+        ${dl.href ? `<div class="desc" dir="ltr">${esc(dl.href)}</div>` : ''}
+        <div style="margin-top:6px;">
+          <button class="btn btn-success btn-sm" onclick="addStepFromExplorer('download', '${escAttr(dl.selector)}', '', 'הורדה: ${escAttr(dl.text)}')">+ הוסף כשלב הורדה</button>
+          <button class="btn btn-ghost btn-sm" onclick="addStepFromExplorer('downloadAll', '${escAttr(dl.selector)}', '', 'הורד הכל: ${escAttr(dl.text)}')">+ הורד הכל</button>
+        </div>
+      </div>`;
+    });
     html += `</div>`;
   }
 
-  container.innerHTML = html;
+  // Nothing found
+  if ((!a.forms || a.forms.length === 0) && (!a.downloadLinks || a.downloadLinks.length === 0) && (!a.clickableElements || a.clickableElements.length === 0) && (!a.navigation || a.navigation.length === 0)) {
+    html += `<div style="padding:16px; background:var(--bg); border-radius:8px; text-align:center;">
+      <p style="color:var(--warning);">לא נמצאו אלמנטים מעניינים בעמוד זה.</p>
+      <p style="color:var(--text2); font-size:12px; margin-top:4px;">נסה לנווט ידנית:</p>
+      <div style="display:flex; gap:6px; justify-content:center; margin-top:8px;">
+        <input class="input" id="manualNavUrl" placeholder="https://..." dir="ltr" style="max-width:300px;">
+        <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl').value}, 'ניווט ידני')">עבור</button>
+      </div>
+    </div>`;
+  }
+
+  // Manual navigation always available
+  html += `<div style="margin-top:12px; padding:10px; background:var(--bg); border-radius:8px;">
+    <div style="display:flex; gap:6px; align-items:center;">
+      <span style="font-size:12px; color:var(--text2); white-space:nowrap;">ניווט ידני:</span>
+      <input class="input" id="manualNavUrl2" placeholder="https://..." dir="ltr" style="font-size:12px; padding:6px;">
+      <button class="btn btn-primary btn-sm" onclick="explorerDoAction({type:'navigate', url:document.getElementById('manualNavUrl2').value}, 'ניווט ידני')">עבור</button>
+    </div>
+  </div>`;
+
+  document.getElementById('explorerScreen').innerHTML = html;
+}
+
+function addStepFromExplorer(action, selectorOrUrl, text, description) {
+  if (explorerPhase === 'login') {
+    if (action === 'navigate') {
+      addLoginStep({ action: 'navigate', selector: selectorOrUrl, text: '' });
+    } else {
+      addLoginStep({ action, selector: selectorOrUrl, text: text || '' });
+    }
+    toast(`שלב Login נוסף: ${description}`);
+  } else {
+    if (action === 'navigate') {
+      addDownloadStep({ action: 'navigate', selector: selectorOrUrl });
+      document.getElementById('w-invoicesUrl').value = selectorOrUrl;
+    } else {
+      addDownloadStep({ action, selector: selectorOrUrl });
+    }
+    toast(`שלב הורדה נוסף: ${description}`);
+  }
 }
 
 function applySuggestedLoginSteps() {
   if (!lastAnalysis || !lastAnalysis.suggestedLoginSteps) return;
-
-  // Clear existing login steps
   document.getElementById('loginSteps').innerHTML = '';
   loginStepCount = 0;
-
   lastAnalysis.suggestedLoginSteps.forEach(step => {
     addLoginStep({ action: step.action, selector: step.selector || step.url || '', text: step.text || '' });
   });
-
-  toast('שלבי Login מולאו מהניתוח!');
+  toast('שלבי Login מולאו אוטומטית!');
 }
 
 function applySuggestedDownloadSteps() {
   if (!lastAnalysis || !lastAnalysis.suggestedDownloadSteps) return;
-
   document.getElementById('downloadSteps').innerHTML = '';
   downloadStepCount = 0;
-
   lastAnalysis.suggestedDownloadSteps.forEach(step => {
     addDownloadStep({ action: step.action, selector: step.selector || step.url || '' });
   });
-
-  // Also set invoices URL if a navigation suggestion exists
   if (lastAnalysis.suggestedDownloadSteps[0]?.url) {
     document.getElementById('w-invoicesUrl').value = lastAnalysis.suggestedDownloadSteps[0].url;
   }
-
-  toast('שלבי הורדה מולאו מהניתוח!');
+  toast('שלבי הורדה מולאו אוטומטית!');
 }
 
-function useNavLink(href, selector) {
-  document.getElementById('w-invoicesUrl').value = href;
-  // Add a navigate step to download steps
-  addDownloadStep({ action: 'navigate', selector: href });
-  toast('לינק הניווט נוסף לשלבי ההורדה');
-}
-
-function useDownloadLink(selector, action) {
-  addDownloadStep({ action, selector });
-  toast('כפתור ההורדה נוסף לשלבים');
-}
+function escAttr(s) { return (s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
 
 // Sync analyze URL with login URL
 document.getElementById('analyzeUrl')?.addEventListener('input', function() {

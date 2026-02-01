@@ -98,13 +98,59 @@ router.post('/test', async (req, res) => {
   }
 });
 
-// Analyze a URL - detect forms, download links, suggest selectors
+// Analyze a URL - detect forms, download links, suggest selectors (single-shot)
 router.post('/analyze', async (req, res) => {
   try {
     const { url } = req.body;
     if (!url) return res.status(400).json({ success: false, error: 'URL is required' });
     const analysis = await invoiceService.analyzePage(url);
     res.json({ success: true, analysis });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// --- Interactive Session-based Analysis (multi-screen) ---
+
+// Start a session: opens browser, navigates to URL, scans page
+router.post('/session/start', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ success: false, error: 'URL is required' });
+    const result = await invoiceService.startSession(url);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Perform an action in a session (click, type, navigate...) and re-scan
+router.post('/session/:id/action', async (req, res) => {
+  try {
+    const action = req.body;
+    if (!action.type) return res.status(400).json({ success: false, error: 'Action type is required' });
+    const result = await invoiceService.sessionAction(req.params.id, action);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Re-scan current page without action
+router.post('/session/:id/scan', async (req, res) => {
+  try {
+    const result = await invoiceService.sessionScan(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Close a session
+router.post('/session/:id/close', async (req, res) => {
+  try {
+    await invoiceService.closeSession(req.params.id);
+    res.json({ success: true });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
