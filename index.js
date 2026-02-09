@@ -27,6 +27,7 @@ const pdfRoutes = require('./services/pdf/pdfRoutes');
 // Import utilities
 const browserPool = require('./utils/browserPool');
 const { runLighthouse } = require('./utils/lighthouse');
+const fileCleanupScheduler = require('./utils/fileCleanupScheduler');
 
 const authMiddleware = (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
@@ -127,19 +128,22 @@ app.listen(PORT, () => {
     console.log(`📄 Invoice Dashboard: http://localhost:${PORT}/invoices`);
     console.log(`💚 Health Check: http://localhost:${PORT}/health`);
 
-    // Start invoice scheduler
+    // Start schedulers
     invoiceScheduler.start().catch(err => console.error('Invoice scheduler start error:', err));
+    fileCleanupScheduler.start();
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
     console.log('🛑 SIGTERM received, shutting down gracefully...');
+    fileCleanupScheduler.stop();
     await browserPool.cleanup();
     process.exit(0);
 });
 
 process.on('SIGINT', async () => {
     console.log('🛑 SIGINT received, shutting down gracefully...');
+    fileCleanupScheduler.stop();
     await browserPool.cleanup();
     process.exit(0);
 });
