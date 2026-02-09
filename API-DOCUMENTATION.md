@@ -1103,6 +1103,172 @@ curl https://playwright.strudel.marketing/api/performance/health
 
 ---
 
+## 📄 PDF Generation - `/api/pdf`
+
+### POST /api/pdf/generate - המרת HTML ל-PDF
+
+**מטרה:** המרת תוכן HTML ל-PDF באיכות גבוהה
+
+**שדות חובה:** `html` (string)
+**שדות אופציונליים:** `options` (object), `returnType` (string)
+
+**אפשרויות זמינות ב-options:**
+- `format` (string, default: 'A4') - גודל עמוד: A4, Letter, A3, Legal, Tabloid וכו'
+- `landscape` (boolean, default: false) - כיוון לרוחב
+- `margin` (object) - שוליים: `{top, right, bottom, left}` (למשל: '1cm', '20mm', '0.5in')
+- `printBackground` (boolean, default: true) - הדפסת צבעי רקע
+- `displayHeaderFooter` (boolean, default: false) - הצגת header/footer
+- `headerTemplate` (string) - תבנית HTML ל-header
+- `footerTemplate` (string) - תבנית HTML ל-footer
+- `preferCSSPageSize` (boolean, default: false) - שימוש בגודל עמוד מ-CSS
+- `scale` (number, default: 1) - סקלה של הדף (0.1-2)
+- `width` (string) - רוחב מותאם (דורס את format)
+- `height` (string) - גובה מותאם (דורס את format)
+- `waitUntil` (string) - אירוע המתנה: load, domcontentloaded, networkidle
+- `timeout` (number, default: 30000) - זמן timeout
+
+**returnType:**
+- `base64` (ברירת מחדל) - מחזיר base64 encoded string
+- `buffer` - מחזיר binary PDF (Content-Type: application/pdf)
+- `file` - שומר לקובץ ומחזיר URL לגישה
+
+**דוגמת curl:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "html": "<html><body><h1>Hello World</h1><p>This is a test PDF</p></body></html>",
+    "options": {
+      "format": "A4",
+      "printBackground": true,
+      "margin": {
+        "top": "20mm",
+        "bottom": "20mm",
+        "left": "15mm",
+        "right": "15mm"
+      },
+      "landscape": false,
+      "scale": 1
+    },
+    "returnType": "base64"
+  }'
+```
+
+**דוגמת תשובה (base64):**
+```json
+{
+  "success": true,
+  "data": "JVBERi0xLjQK...(base64 encoded PDF)...",
+  "filename": "generated-pdf-a1b2c3d4.pdf",
+  "size": 12345,
+  "timestamp": "2025-01-22T10:30:00.000Z"
+}
+```
+
+**דוגמת curl עם שמירה לקובץ:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "html": "<html><body><h1>Report</h1></body></html>",
+    "options": { "format": "A4" },
+    "returnType": "file"
+  }'
+```
+
+**דוגמת תשובה (file):**
+```json
+{
+  "success": true,
+  "data": "./pdfs/generated-pdf-a1b2c3d4.pdf",
+  "filename": "generated-pdf-a1b2c3d4.pdf",
+  "size": 12345,
+  "timestamp": "2025-01-22T10:30:00.000Z",
+  "fileUrl": "https://playwright.strudel.marketing/pdfs/generated-pdf-a1b2c3d4.pdf"
+}
+```
+
+---
+
+### POST /api/pdf/from-url - המרת URL ל-PDF
+
+**מטרה:** המרת דף אינטרנט ל-PDF
+
+**שדות חובה:** `url` (string)
+**שדות אופציונליים:** `options` (object), `returnType` (string)
+
+**אפשרויות נוספות ב-options (מעבר ל-generate):**
+- `waitUntil` (string, default: 'networkidle') - אירוע המתנה לטעינת הדף
+- `timeout` (number, default: 30000) - זמן timeout לניווט
+
+**דוגמת curl:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/pdf/from-url \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "url": "https://example.com",
+    "options": {
+      "format": "A4",
+      "printBackground": true,
+      "margin": {
+        "top": "1cm",
+        "right": "1cm",
+        "bottom": "1cm",
+        "left": "1cm"
+      },
+      "waitUntil": "networkidle",
+      "timeout": 30000
+    },
+    "returnType": "base64"
+  }'
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "url": "https://example.com",
+  "data": "JVBERi0xLjQK...(base64 encoded PDF)...",
+  "filename": "generated-pdf-e5f6g7h8.pdf",
+  "size": 45678,
+  "timestamp": "2025-01-22T10:30:00.000Z"
+}
+```
+
+---
+
+### GET /api/pdf/list - רשימת PDF שמורים
+
+**מטרה:** הצגת כל קבצי ה-PDF השמורים (נוצרו עם returnType: "file")
+
+**דוגמת curl:**
+```bash
+curl https://playwright.strudel.marketing/api/pdf/list \
+  -H "X-API-Key: YOUR_API_KEY"
+```
+
+**דוגמת תשובה:**
+```json
+{
+  "success": true,
+  "pdfs": [
+    {
+      "filename": "generated-pdf-a1b2c3d4.pdf",
+      "url": "https://playwright.strudel.marketing/pdfs/generated-pdf-a1b2c3d4.pdf",
+      "size": 12345,
+      "created": "2025-01-22T10:30:00.000Z",
+      "modified": "2025-01-22T10:30:00.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+---
+
 ## 🏥 Health & Status
 
 ### GET /health
@@ -1173,3 +1339,11 @@ curl https://playwright.strudel.marketing/status
 - נגישים דרך `/screenshots/`
 - TTL של 7 ימים
 - פורמטים: PNG, JPEG, WebP
+
+### PDF Generation:
+- נשמרים ב-`./pdfs/` (כאשר returnType: "file")
+- נגישים דרך `/pdfs/`
+- TTL של 7 ימים
+- תומך ב-HTML ו-URL כמקור
+- פורמטים: A4, Letter, A3, Legal, Tabloid ועוד
+- אפשרויות החזרה: base64, buffer, file
