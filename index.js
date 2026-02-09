@@ -22,6 +22,7 @@ const compareRoutes = require('./services/comparison/compareRoutes');
 const paaRoutes = require('./services/paa/paaRoutes');
 const performanceRoutes = require('./services/performance/performanceRoutes');
 const knowledgeRoutes = require('./services/knowledge/knowledgeRoutes');
+const pdfRoutes = require('./services/pdf/pdfRoutes');
 
 // Import utilities
 const browserPool = require('./utils/browserPool');
@@ -62,6 +63,14 @@ app.get('/invoices', invoiceAuthCheck, (req, res) => {
 });
 app.use('/invoices', invoiceAuthCheck, express.static(path.join(__dirname, 'public', 'invoices')));
 
+// Static files for PDFs (לפני auth!)
+app.use('/pdfs', express.static('./pdfs', {
+    maxAge: '7d',
+    setHeaders: (res) => {
+        res.setHeader('Content-Type', 'application/pdf');
+    }
+}));
+
 // Static files for screenshots (לפני auth!)
 app.use('/screenshots', express.static('/app/screenshots', {
     maxAge: '7d',
@@ -100,6 +109,7 @@ app.use('/api/compare', compareRoutes);
 app.use('/api/paa', paaRoutes);
 app.use('/api/performance', performanceRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
+app.use('/api/pdf', pdfRoutes);
 
 // Start server
 app.listen(PORT, () => {
@@ -113,6 +123,7 @@ app.listen(PORT, () => {
     console.log(`🏥 Performance: http://localhost:${PORT}/api/performance`);
     console.log(`🧠 Knowledge Graph: http://localhost:${PORT}/api/knowledge`);
     console.log(`📄 Invoices: http://localhost:${PORT}/api/invoices`);
+    console.log(`📄 PDF Generation: http://localhost:${PORT}/api/pdf`);
     console.log(`📄 Invoice Dashboard: http://localhost:${PORT}/invoices`);
     console.log(`💚 Health Check: http://localhost:${PORT}/health`);
 
