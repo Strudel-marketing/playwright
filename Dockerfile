@@ -7,10 +7,11 @@ WORKDIR /app
 # Install curl for healthcheck + Python for Knowledge Graph
 RUN apt-get update && apt-get install -y curl python3 python3-pip && rm -rf /var/lib/apt/lists/*
 
-# Copy Python requirements and install
+# Copy Python requirements and install (--no-cache-dir to reduce memory usage during build)
 COPY requirements.txt ./
-RUN pip3 install --upgrade pip setuptools wheel
-RUN pip3 install -r requirements.txt
+RUN pip3 install --no-cache-dir --upgrade pip setuptools wheel
+RUN pip3 install --no-cache-dir numpy>=1.24.0,\<1.26.0 pandas>=2.0.0,\<2.1.0
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy package files first for better caching
 COPY package*.json ./
@@ -46,8 +47,8 @@ COPY public/ ./public/
 COPY data/ ./data/
 
 # Create necessary directories with proper permissions
-RUN mkdir -p downloads tmp logs screenshots && \
-    chmod 777 downloads tmp logs screenshots
+RUN mkdir -p downloads tmp logs screenshots pdfs && \
+    chmod 777 downloads tmp logs screenshots pdfs
 
 # Make Python scripts executable
 RUN chmod +x scripts/*.py 2>/dev/null || true
