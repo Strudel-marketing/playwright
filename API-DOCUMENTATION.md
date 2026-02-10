@@ -1107,32 +1107,86 @@ curl https://playwright.strudel.marketing/api/performance/health
 
 ### POST /api/pdf/generate - המרת HTML ל-PDF
 
-**מטרה:** המרת תוכן HTML ל-PDF באיכות גבוהה
+**מטרה:** המרת תוכן HTML ל-PDF באיכות גבוהה, עם תמיכה בקבצים מוטמעים, פונטים מותאמים, ו-debug mode
 
 **שדות חובה:** `html` (string)
-**שדות אופציונליים:** `options` (object), `returnType` (string)
+
+**שדות אופציונליים:**
+
+| שדה | סוג | תיאור |
+|-----|------|--------|
+| `options` | object | אפשרויות PDF (ראה למטה) |
+| `assets` | object | קבצים מוטמעים: `{"filename.png": "base64..."}` |
+| `fonts` | object | הגדרות פונטים (Google Fonts או base64) |
+| `requestHeaders` | object | headers לפי URL pattern: `{"https://cdn.com/*": {"Authorization": "..."}}` |
+| `globalHeaders` | object | headers גלובליים לכל הבקשות |
+| `waitFor` | object | אפשרויות המתנה מתקדמות |
+| `debug` | boolean | מחזיר screenshot + metadata לדיבוג |
+| `returnType` | string | `"base64"` (ברירת מחדל), `"buffer"`, או `"file"` |
 
 **אפשרויות זמינות ב-options:**
-- `format` (string, default: 'A4') - גודל עמוד: A4, Letter, A3, Legal, Tabloid וכו'
+- `format` (string, default: 'A4') - גודל עמוד: A4, Letter, A3, Legal, Tabloid
 - `landscape` (boolean, default: false) - כיוון לרוחב
 - `margin` (object) - שוליים: `{top, right, bottom, left}` (למשל: '1cm', '20mm', '0.5in')
 - `printBackground` (boolean, default: true) - הדפסת צבעי רקע
 - `displayHeaderFooter` (boolean, default: false) - הצגת header/footer
 - `headerTemplate` (string) - תבנית HTML ל-header
 - `footerTemplate` (string) - תבנית HTML ל-footer
-- `preferCSSPageSize` (boolean, default: false) - שימוש בגודל עמוד מ-CSS
+- `preferCSSPageSize` (boolean, default: false) - שימוש בגודל עמוד מ-CSS (`@page`)
 - `scale` (number, default: 1) - סקלה של הדף (0.1-2)
-- `width` (string) - רוחב מותאם (דורס את format)
-- `height` (string) - גובה מותאם (דורס את format)
+- `width` (string) - רוחב מותאם, למשל `"1920px"` (דורס את format)
+- `height` (string) - גובה מותאם, למשל `"1080px"` (דורס את format)
+- `pageRanges` (string) - טווח עמודים, למשל `"1-3"` או `"1,3,5"`
+- `viewportWidth` (number, default: 1280) - רוחב viewport
+- `viewportHeight` (number, default: 800) - גובה viewport
+- `deviceScaleFactor` (number, default: 1) - רזולוציה (2 = retina)
 - `waitUntil` (string) - אירוע המתנה: load, domcontentloaded, networkidle
 - `timeout` (number, default: 30000) - זמן timeout
 
-**returnType:**
-- `base64` (ברירת מחדל) - מחזיר base64 encoded string
-- `buffer` - מחזיר binary PDF (Content-Type: application/pdf)
-- `file` - שומר לקובץ ומחזיר URL לגישה
+**assets - קבצים מוטמעים:**
+במקום להטמיע base64 ישירות ב-HTML, שלחו אותם בנפרד:
+```json
+{
+  "assets": {
+    "logo.png": "iVBORw0KGgoAAAANS...",
+    "background.jpg": "data:image/jpeg;base64,/9j/4AAQ..."
+  }
+}
+```
+השירות יוצר קבצים זמניים ומחליף את ה-`src` ב-HTML אוטומטית.
 
-**דוגמת curl:**
+**fonts - פונטים מותאמים:**
+```json
+{
+  "fonts": {
+    "Assistant": {
+      "source": "google",
+      "weights": [300, 400, 600, 700, 800]
+    },
+    "CustomFont": {
+      "base64": "d09GMgABAAAAAD...",
+      "format": "woff2",
+      "weight": 400,
+      "style": "normal"
+    }
+  }
+}
+```
+
+**waitFor - המתנה מתקדמת:**
+```json
+{
+  "waitFor": {
+    "networkIdle": true,
+    "fonts": true,
+    "images": true,
+    "timeout": 30000
+  }
+}
+```
+ברירת מחדל: ממתין לכל השלושה (network, fonts, images).
+
+**דוגמת curl בסיסית:**
 ```bash
 curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
   -H "Content-Type: application/json" \
@@ -1147,10 +1201,41 @@ curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
         "bottom": "20mm",
         "left": "15mm",
         "right": "15mm"
-      },
-      "landscape": false,
-      "scale": 1
+      }
+    }
+  }'
+```
+
+**דוגמת curl מלאה (עם assets, fonts, debug):**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "html": "<html><head></head><body style=\"font-family: Assistant\"><img src=\"logo.png\"><h1>דוח חודשי</h1></body></html>",
+    "assets": {
+      "logo.png": "iVBORw0KGgoAAAANS..."
     },
+    "fonts": {
+      "Assistant": {
+        "source": "google",
+        "weights": [400, 700]
+      }
+    },
+    "options": {
+      "width": "1920px",
+      "height": "1080px",
+      "printBackground": true,
+      "preferCSSPageSize": true,
+      "margin": { "top": "0mm", "right": "0mm", "bottom": "0mm", "left": "0mm" },
+      "deviceScaleFactor": 2
+    },
+    "waitFor": {
+      "networkIdle": true,
+      "fonts": true,
+      "images": true
+    },
+    "debug": true,
     "returnType": "base64"
   }'
 ```
@@ -1166,16 +1251,22 @@ curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
 }
 ```
 
-**דוגמת curl עם שמירה לקובץ:**
-```bash
-curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: YOUR_API_KEY" \
-  -d '{
-    "html": "<html><body><h1>Report</h1></body></html>",
-    "options": { "format": "A4" },
-    "returnType": "file"
-  }'
+**דוגמת תשובה עם debug:**
+```json
+{
+  "success": true,
+  "data": "JVBERi0xLjQK...",
+  "filename": "generated-pdf-a1b2c3d4.pdf",
+  "size": 12345,
+  "timestamp": "2025-01-22T10:30:00.000Z",
+  "debug": {
+    "screenshot": "iVBORw0KGgo...(base64 PNG)...",
+    "dimensions": { "width": 1920, "height": 1080, "devicePixelRatio": 2 },
+    "loadTime": 2340,
+    "imagesLoaded": 5,
+    "fontsLoaded": ["Assistant 400", "Assistant 700"]
+  }
+}
 ```
 
 **דוגמת תשובה (file):**
@@ -1190,6 +1281,20 @@ curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
 }
 ```
 
+**Multi-page PDF עם CSS:**
+```css
+@page {
+  size: 1920px 1080px;
+  margin: 0;
+}
+.page {
+  width: 1920px;
+  height: 1080px;
+  page-break-after: always;
+}
+```
+השתמשו ב-`preferCSSPageSize: true` כדי שה-PDF יכבד את `@page`.
+
 ---
 
 ### POST /api/pdf/from-url - המרת URL ל-PDF
@@ -1197,11 +1302,17 @@ curl -X POST https://playwright.strudel.marketing/api/pdf/generate \
 **מטרה:** המרת דף אינטרנט ל-PDF
 
 **שדות חובה:** `url` (string)
-**שדות אופציונליים:** `options` (object), `returnType` (string)
 
-**אפשרויות נוספות ב-options (מעבר ל-generate):**
-- `waitUntil` (string, default: 'networkidle') - אירוע המתנה לטעינת הדף
-- `timeout` (number, default: 30000) - זמן timeout לניווט
+**שדות אופציונליים:**
+
+| שדה | סוג | תיאור |
+|-----|------|--------|
+| `options` | object | אפשרויות PDF (זהות ל-generate) |
+| `requestHeaders` | object | headers לפי URL pattern |
+| `globalHeaders` | object | headers גלובליים |
+| `waitFor` | object | אפשרויות המתנה |
+| `debug` | boolean | מחזיר screenshot + metadata |
+| `returnType` | string | `"base64"`, `"buffer"`, או `"file"` |
 
 **דוגמת curl:**
 ```bash
@@ -1223,6 +1334,28 @@ curl -X POST https://playwright.strudel.marketing/api/pdf/from-url \
       "timeout": 30000
     },
     "returnType": "base64"
+  }'
+```
+
+**דוגמת curl עם headers לתמונות פרטיות:**
+```bash
+curl -X POST https://playwright.strudel.marketing/api/pdf/from-url \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -d '{
+    "url": "https://app.example.com/report",
+    "requestHeaders": {
+      "https://private-cdn.com/*": {
+        "Authorization": "Bearer token123"
+      }
+    },
+    "globalHeaders": {
+      "X-Custom-Header": "value"
+    },
+    "options": {
+      "format": "A4",
+      "printBackground": true
+    }
   }'
 ```
 

@@ -11,11 +11,21 @@ const pdfService = require('./pdfService');
 
 /**
  * @route   POST /api/pdf/generate
- * @desc    המרת HTML ל-PDF
+ * @desc    המרת HTML ל-PDF עם תמיכה ב-assets, fonts, headers, ו-debug
  * @access  Protected (API Key)
  */
 router.post('/generate', async (req, res) => {
-  const { html, options = {}, returnType = 'base64' } = req.body || {};
+  const {
+    html,
+    options = {},
+    assets,
+    fonts,
+    requestHeaders,
+    globalHeaders,
+    waitFor,
+    debug = false,
+    returnType = 'base64',
+  } = req.body || {};
 
   if (!html) {
     return res.status(400).json({
@@ -25,7 +35,8 @@ router.post('/generate', async (req, res) => {
   }
 
   try {
-    const result = await pdfService.generatePDF(html, options, returnType);
+    const params = { options, assets, fonts, requestHeaders, globalHeaders, waitFor, debug };
+    const result = await pdfService.generatePDF(html, params, returnType);
 
     // אם returnType הוא buffer, שלח את ה-PDF כ-binary
     if (returnType === 'buffer') {
@@ -47,6 +58,7 @@ router.post('/generate', async (req, res) => {
       size: result.size,
       timestamp: result.timestamp,
       ...(result.fileUrl ? { fileUrl: result.fileUrl } : {}),
+      ...(result.debug ? { debug: result.debug } : {}),
     });
   } catch (error) {
     console.error('❌ PDF generation error:', error);
@@ -59,11 +71,19 @@ router.post('/generate', async (req, res) => {
 
 /**
  * @route   POST /api/pdf/from-url
- * @desc    המרת URL ל-PDF
+ * @desc    המרת URL ל-PDF עם תמיכה ב-headers ו-debug
  * @access  Protected (API Key)
  */
 router.post('/from-url', async (req, res) => {
-  const { url, options = {}, returnType = 'base64' } = req.body || {};
+  const {
+    url,
+    options = {},
+    requestHeaders,
+    globalHeaders,
+    waitFor,
+    debug = false,
+    returnType = 'base64',
+  } = req.body || {};
 
   if (!url) {
     return res.status(400).json({
@@ -73,7 +93,8 @@ router.post('/from-url', async (req, res) => {
   }
 
   try {
-    const result = await pdfService.generatePDFFromUrl(url, options, returnType);
+    const params = { options, requestHeaders, globalHeaders, waitFor, debug };
+    const result = await pdfService.generatePDFFromUrl(url, params, returnType);
 
     // אם returnType הוא buffer, שלח את ה-PDF כ-binary
     if (returnType === 'buffer') {
@@ -96,6 +117,7 @@ router.post('/from-url', async (req, res) => {
       size: result.size,
       timestamp: result.timestamp,
       ...(result.fileUrl ? { fileUrl: result.fileUrl } : {}),
+      ...(result.debug ? { debug: result.debug } : {}),
     });
   } catch (error) {
     console.error('❌ PDF from URL error:', error);
