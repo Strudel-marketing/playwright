@@ -27,6 +27,19 @@ router.post('/generate', async (req, res) => {
     returnType = 'base64',
   } = req.body || {};
 
+  // Debug: trace assets through the entire flow
+  console.log('━━━ /api/pdf/generate request ━━━');
+  console.log('📦 req.body keys:', Object.keys(req.body || {}));
+  console.log('📦 req.body.assets type:', typeof req.body?.assets);
+  console.log('📦 req.body.assets keys:', req.body?.assets ? Object.keys(req.body.assets) : 'N/A');
+  console.log('📦 destructured assets type:', typeof assets);
+  console.log('📦 destructured assets keys:', assets ? Object.keys(assets) : 'N/A');
+  if (assets) {
+    for (const [k, v] of Object.entries(assets)) {
+      console.log(`📦 asset "${k}": ${typeof v}, length=${String(v).length}`);
+    }
+  }
+
   if (!html) {
     return res.status(400).json({
       success: false,
@@ -36,6 +49,7 @@ router.post('/generate', async (req, res) => {
 
   try {
     const params = { options, assets, fonts, requestHeaders, globalHeaders, waitFor, debug };
+    console.log('📦 params.assets keys:', params.assets ? Object.keys(params.assets) : 'N/A');
     const result = await pdfService.generatePDF(html, params, returnType);
 
     // אם returnType הוא buffer, שלח את ה-PDF כ-binary

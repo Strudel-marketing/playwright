@@ -367,9 +367,17 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     }
 
     // assets -> inline data URIs
+    console.log('━━━ assets check ━━━');
+    console.log('📦 assets type:', typeof assets);
+    console.log('📦 assets truthy:', !!assets);
+    console.log('📦 assets keys:', assets ? Object.keys(assets) : 'N/A');
+    console.log('📦 assets length:', assets ? Object.keys(assets).length : 0);
     let processedHtml = html;
     if (assets && Object.keys(assets).length > 0) {
+      console.log('✅ Calling processAssets()...');
       processedHtml = processAssets(processedHtml, assets);
+    } else {
+      console.log('⚠️ Skipping processAssets - assets is empty or undefined');
     }
 
     // fonts -> inject CSS
