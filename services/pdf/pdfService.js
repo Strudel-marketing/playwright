@@ -69,23 +69,23 @@ function processAssets(html, assets) {
   let processed = html;
 
   for (const [filename, base64Data] of Object.entries(assets)) {
-    // הסר data URI prefix אם קיים, ושמור את ה-base64 הנקי
-    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
+    // הסר data URI prefix אם קיים, ונקה רווחים ושורות חדשות מה-base64
+    const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
     const mimeType = getMimeType(filename);
     const dataUri = `data:${mimeType};base64,${cleanBase64}`;
 
-    // החלף כל הפניות לקובץ ב-HTML ל-data URI
+    // escape תווים מיוחדים בשם הקובץ לשימוש ב-regex
     const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-    // מחליף src="filename", src='filename'
+    // תופס src="filename", src='filename', src=filename, גם עם רווחים סביב =
     processed = processed.replace(
-      new RegExp(`src=["']${escaped}["']`, 'g'),
+      new RegExp(`src\\s*=\\s*["']?${escaped}["']?`, 'gi'),
       `src="${dataUri}"`
     );
 
-    // מחליף url(filename), url('filename'), url("filename") ב-CSS
+    // תופס url(filename), url('filename'), url("filename") ב-CSS
     processed = processed.replace(
-      new RegExp(`url\\(["']?${escaped}["']?\\)`, 'g'),
+      new RegExp(`url\\(\\s*["']?${escaped}["']?\\s*\\)`, 'gi'),
       `url('${dataUri}')`
     );
   }
