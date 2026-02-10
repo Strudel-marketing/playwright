@@ -32,28 +32,28 @@ function normalizeWaitUntil(waitUntil) {
  * @returns {string} MIME type
  */
 function getMimeType(filename) {
-  const ext = path.extname(filename).toLowerCase();
+  const ext = filename.split('.').pop().toLowerCase();
   const mimeTypes = {
-    '.png': 'image/png',
-    '.jpg': 'image/jpeg',
-    '.jpeg': 'image/jpeg',
-    '.gif': 'image/gif',
-    '.svg': 'image/svg+xml',
-    '.webp': 'image/webp',
-    '.ico': 'image/x-icon',
-    '.bmp': 'image/bmp',
-    '.tiff': 'image/tiff',
-    '.tif': 'image/tiff',
-    '.avif': 'image/avif',
-    '.css': 'text/css',
-    '.js': 'application/javascript',
-    '.json': 'application/json',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.otf': 'font/otf',
-    '.eot': 'application/vnd.ms-fontobject',
-    '.pdf': 'application/pdf',
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'svg': 'image/svg+xml',
+    'webp': 'image/webp',
+    'ico': 'image/x-icon',
+    'bmp': 'image/bmp',
+    'tiff': 'image/tiff',
+    'tif': 'image/tiff',
+    'avif': 'image/avif',
+    'css': 'text/css',
+    'js': 'application/javascript',
+    'json': 'application/json',
+    'woff': 'font/woff',
+    'woff2': 'font/woff2',
+    'ttf': 'font/ttf',
+    'otf': 'font/otf',
+    'eot': 'application/vnd.ms-fontobject',
+    'pdf': 'application/pdf',
   };
   return mimeTypes[ext] || 'application/octet-stream';
 }
@@ -66,31 +66,46 @@ function getMimeType(filename) {
  * @returns {string} HTML מעודכן עם data URIs
  */
 function processAssets(html, assets) {
+  if (!assets || Object.keys(assets).length === 0) {
+    console.log('📁 No assets to process');
+    return html;
+  }
+
+  console.log(`🔍 processAssets called with ${Object.keys(assets).length} assets:`, Object.keys(assets));
+  console.log(`📝 HTML before processing (first 500 chars): ${html.substring(0, 500)}`);
+
   let processed = html;
 
   for (const [filename, base64Data] of Object.entries(assets)) {
-    // הסר data URI prefix אם קיים, ונקה רווחים ושורות חדשות מה-base64
+    // נקה רווחים ושורות חדשות מה-base64, והסר data URI prefix אם קיים
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').replace(/\s/g, '');
     const mimeType = getMimeType(filename);
     const dataUri = `data:${mimeType};base64,${cleanBase64}`;
 
+    console.log(`📦 Asset "${filename}": base64 input=${base64Data.length} chars, clean=${cleanBase64.length} chars, mime=${mimeType}`);
+    console.log(`🔗 Data URI preview: ${dataUri.substring(0, 80)}...`);
+
     // escape תווים מיוחדים בשם הקובץ לשימוש ב-regex
-    const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedFilename = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
     // תופס src="filename", src='filename', src=filename, גם עם רווחים סביב =
-    processed = processed.replace(
-      new RegExp(`src\\s*=\\s*["']?${escaped}["']?`, 'gi'),
-      `src="${dataUri}"`
-    );
+    const srcRegex = new RegExp(`src\\s*=\\s*["']?${escapedFilename}["']?`, 'gi');
+    const srcMatches = processed.match(srcRegex);
+    console.log(`🎯 src regex: ${srcRegex} → matches: ${JSON.stringify(srcMatches)}`);
+    processed = processed.replace(srcRegex, `src="${dataUri}"`);
 
     // תופס url(filename), url('filename'), url("filename") ב-CSS
-    processed = processed.replace(
-      new RegExp(`url\\(\\s*["']?${escaped}["']?\\s*\\)`, 'gi'),
-      `url('${dataUri}')`
-    );
+    const cssRegex = new RegExp(`url\\s*\\(\\s*["']?${escapedFilename}["']?\\s*\\)`, 'gi');
+    const cssMatches = processed.match(cssRegex);
+    if (cssMatches) {
+      console.log(`🎯 css regex: ${cssRegex} → matches: ${JSON.stringify(cssMatches)}`);
+    }
+    processed = processed.replace(cssRegex, `url("${dataUri}")`);
   }
 
-  console.log(`📁 Processed ${Object.keys(assets).length} assets as inline data URIs`);
+  const hadChanges = processed !== html;
+  console.log(`✅ HTML after processing (first 500 chars): ${processed.substring(0, 500)}`);
+  console.log(`📁 processAssets done: ${Object.keys(assets).length} assets, HTML changed: ${hadChanges}`);
   return processed;
 }
 
@@ -270,15 +285,20 @@ function buildPdfOptions(options) {
 /**
  * איסוף מידע debug
  */
-async function collectDebugInfo(page, startTime) {
+async function collectDebugInfo(page, startTime, processedHtml) {
   const screenshot = await page.screenshot({ type: 'png', fullPage: true });
   const dimensions = await page.evaluate(() => ({
     width: document.documentElement.scrollWidth,
     height: document.documentElement.scrollHeight,
     devicePixelRatio: window.devicePixelRatio,
   }));
-  const imagesLoaded = await page.evaluate(() =>
-    Array.from(document.images).filter(img => img.complete).length
+  const imageInfo = await page.evaluate(() =>
+    Array.from(document.images).map(img => ({
+      src: img.src.substring(0, 100) + (img.src.length > 100 ? '...' : ''),
+      complete: img.complete,
+      naturalWidth: img.naturalWidth,
+      naturalHeight: img.naturalHeight,
+    }))
   );
   const fontsLoaded = await page.evaluate(() =>
     Array.from(document.fonts).map(f => `${f.family} ${f.weight}`)
@@ -288,8 +308,10 @@ async function collectDebugInfo(page, startTime) {
     screenshot: screenshot.toString('base64'),
     dimensions,
     loadTime: Date.now() - startTime,
-    imagesLoaded,
+    totalImages: imageInfo.length,
+    images: imageInfo,
     fontsLoaded,
+    htmlPreview: processedHtml ? processedHtml.substring(0, 1000) : null,
   };
 }
 
@@ -316,10 +338,8 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     debug = false,
   } = params;
 
-  // backward compatibility: אם params הוא options ישירות (בלי assets/fonts)
-  const actualOptions = options.format || options.margin || options.landscape !== undefined
-    ? options
-    : params;
+  // options תמיד מכיל את ההגדרות - גם אם הם נשלחים ב-options object או ישירות
+  const actualOptions = (Object.keys(options).length > 0) ? options : params;
 
   const {
     deviceScaleFactor = 1,
@@ -328,6 +348,9 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     waitUntil,
     timeout = 30000,
   } = actualOptions;
+
+  console.log(`📐 Viewport: ${viewportWidth}x${viewportHeight}, timeout: ${timeout}`);
+  console.log(`📦 Assets received: ${assets ? Object.keys(assets).length : 0}, fonts: ${fonts ? Object.keys(fonts).length : 0}`);
 
   const { page, context, id } = await browserPool.getPage();
 
@@ -384,7 +407,7 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     // debug info (before PDF)
     let debugInfo = null;
     if (debug) {
-      debugInfo = await collectDebugInfo(page, startTime);
+      debugInfo = await collectDebugInfo(page, startTime, processedHtml);
     }
 
     // generate PDF
@@ -423,9 +446,7 @@ async function generatePDFFromUrl(url, params = {}, returnType = 'base64') {
     debug = false,
   } = params;
 
-  const actualOptions = options.format || options.margin || options.landscape !== undefined
-    ? options
-    : params;
+  const actualOptions = (Object.keys(options).length > 0) ? options : params;
 
   const {
     deviceScaleFactor = 1,
@@ -470,7 +491,7 @@ async function generatePDFFromUrl(url, params = {}, returnType = 'base64') {
     // debug info
     let debugInfo = null;
     if (debug) {
-      debugInfo = await collectDebugInfo(page, startTime);
+      debugInfo = await collectDebugInfo(page, startTime, null);
     }
 
     // generate PDF
