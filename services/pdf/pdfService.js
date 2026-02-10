@@ -2,7 +2,6 @@ const browserPool = require('../../utils/browserPool');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const os = require('os');
 
 /**
  * PDF Generation Service
@@ -28,55 +27,70 @@ function normalizeWaitUntil(waitUntil) {
 }
 
 /**
- * יצירת תיקייה זמנית ל-assets
- * @returns {{ dir: string, cleanup: Function }}
+ * זיהוי MIME type לפי סיומת קובץ
+ * @param {string} filename - שם הקובץ
+ * @returns {string} MIME type
  */
-function createTempDir() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pdf-assets-'));
-  const cleanup = () => {
-    try {
-      fs.rmSync(dir, { recursive: true, force: true });
-    } catch (err) {
-      console.warn(`⚠️ Failed to cleanup temp dir ${dir}:`, err.message);
-    }
+function getMimeType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  const mimeTypes = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+    '.ico': 'image/x-icon',
+    '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff',
+    '.tif': 'image/tiff',
+    '.avif': 'image/avif',
+    '.css': 'text/css',
+    '.js': 'application/javascript',
+    '.json': 'application/json',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
+    '.eot': 'application/vnd.ms-fontobject',
+    '.pdf': 'application/pdf',
   };
-  return { dir, cleanup };
+  return mimeTypes[ext] || 'application/octet-stream';
 }
 
 /**
- * שמירת assets לתיקייה זמנית והחלפת ה-src ב-HTML
+ * החלפת הפניות ל-assets ב-HTML עם data URIs (inline base64)
+ * שיטה זו עובדת עם page.setContent() בניגוד ל-file:// שחסום מטעמי אבטחה
  * @param {string} html - תוכן HTML
  * @param {Object} assets - מפה של שם-קובץ -> base64
- * @param {string} tempDir - תיקייה זמנית
- * @returns {string} HTML מעודכן עם file:// paths
+ * @returns {string} HTML מעודכן עם data URIs
  */
-function processAssets(html, assets, tempDir) {
+function processAssets(html, assets) {
   let processed = html;
 
   for (const [filename, base64Data] of Object.entries(assets)) {
-    // הסר data URI prefix אם קיים
+    // הסר data URI prefix אם קיים, ושמור את ה-base64 הנקי
     const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '');
-    const buffer = Buffer.from(cleanBase64, 'base64');
-    const filePath = path.join(tempDir, filename);
+    const mimeType = getMimeType(filename);
+    const dataUri = `data:${mimeType};base64,${cleanBase64}`;
 
-    // שמור את הקובץ
-    fs.writeFileSync(filePath, buffer);
-
-    // החלף כל הפניות לקובץ ב-HTML ל-file:// path
-    const fileUrl = `file://${filePath}`;
-    // מחליף src="filename", src='filename', url(filename), url('filename'), url("filename")
+    // החלף כל הפניות לקובץ ב-HTML ל-data URI
     const escaped = filename.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // מחליף src="filename", src='filename'
     processed = processed.replace(
-      new RegExp(`(src=["']?)${escaped}(["']?)`, 'g'),
-      `$1${fileUrl}$2`
+      new RegExp(`src=["']${escaped}["']`, 'g'),
+      `src="${dataUri}"`
     );
+
+    // מחליף url(filename), url('filename'), url("filename") ב-CSS
     processed = processed.replace(
       new RegExp(`url\\(["']?${escaped}["']?\\)`, 'g'),
-      `url('${fileUrl}')`
+      `url('${dataUri}')`
     );
   }
 
-  console.log(`📁 Processed ${Object.keys(assets).length} assets to ${tempDir}`);
+  console.log(`📁 Processed ${Object.keys(assets).length} assets as inline data URIs`);
   return processed;
 }
 
@@ -315,7 +329,6 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     timeout = 30000,
   } = actualOptions;
 
-  let tempCleanup = null;
   const { page, context, id } = await browserPool.getPage();
 
   try {
@@ -330,12 +343,10 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
       await setupRequestHeaders(page, requestHeaders, globalHeaders);
     }
 
-    // assets -> temp files + HTML replacement
+    // assets -> inline data URIs
     let processedHtml = html;
     if (assets && Object.keys(assets).length > 0) {
-      const temp = createTempDir();
-      tempCleanup = temp.cleanup;
-      processedHtml = processAssets(processedHtml, assets, temp.dir);
+      processedHtml = processAssets(processedHtml, assets);
     }
 
     // fonts -> inject CSS
@@ -390,7 +401,6 @@ async function generatePDF(html, params = {}, returnType = 'base64') {
     throw error;
   } finally {
     await browserPool.releasePage(id);
-    if (tempCleanup) tempCleanup();
   }
 }
 
