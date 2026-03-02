@@ -69,7 +69,8 @@ def wikidata_search(query: str, language: str = "en", limit: int = 10):
         "type": "item",
         "limit": limit,
     }
-    r = requests.get(WIKIDATA_API, params=params, timeout=15)
+    headers = {"User-Agent": "StrudelBot/1.0 (https://strudel.marketing; info@strudel.marketing)"}
+    r = requests.get(WIKIDATA_API, params=params, headers=headers, timeout=15)
     r.raise_for_status()
     data = r.json()
     out = []
@@ -97,7 +98,8 @@ def wikidata_get_entities(qids, language="en"):
         "languages": language,
         "format": "json",
     }
-    r = requests.get(WIKIDATA_API, params=params, timeout=20)
+    headers = {"User-Agent": "StrudelBot/1.0 (https://strudel.marketing; info@strudel.marketing)"}
+    r = requests.get(WIKIDATA_API, params=params, headers=headers, timeout=20)
     r.raise_for_status()
     data = r.json().get("entities", {})
     out = {}
