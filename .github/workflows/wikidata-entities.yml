@@ -1,0 +1,238 @@
+name: Wikidata Entity Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - create-all-clients
+          - create-single
+          - update-entity
+      entity_name:
+        description: 'Entity name (for create-single)'
+        required: false
+        type: string
+      qid:
+        description: 'Wikidata QID (for update-entity, e.g. Q12345)'
+        required: false
+        type: string
+      property:
+        description: 'Property to add (for update-entity, e.g. P856)'
+        required: false
+        type: string
+      value:
+        description: 'Value for property (for update-entity)'
+        required: false
+        type: string
+
+jobs:
+  wikidata:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run Wikidata script
+        env:
+          WD_USERNAME: ${{ secrets.WIKIDATA_USERNAME }}
+          WD_PASSWORD: ${{ secrets.WIKIDATA_PASSWORD }}
+          ACTION: ${{ inputs.action }}
+          ENTITY_NAME: ${{ inputs.entity_name }}
+          QID: ${{ inputs.qid }}
+          PROPERTY: ${{ inputs.property }}
+          VALUE: ${{ inputs.value }}
+        run: |
+          python3 << 'PYEOF'
+          import requests, json, os, time
+
+          URL = "https://www.wikidata.org/w/api.php"
+          UA = {"User-Agent": "StrudelBot/1.0 (https://strudel.marketing; info@strudel.marketing)"}
+          S = requests.Session()
+
+          ACTION = os.environ.get("ACTION", "create-all-clients")
+          ENTITY_NAME = os.environ.get("ENTITY_NAME", "")
+          QID = os.environ.get("QID", "")
+          PROPERTY = os.environ.get("PROPERTY", "")
+          VALUE = os.environ.get("VALUE", "")
+
+          # --- Login ---
+          r = S.get(URL, params={"action": "query", "meta": "tokens", "type": "login", "format": "json"}, headers=UA)
+          login_token = r.json()["query"]["tokens"]["logintoken"]
+          r = S.post(URL, data={
+              "action": "login",
+              "lgname": os.environ["WD_USERNAME"],
+              "lgpassword": os.environ["WD_PASSWORD"],
+              "lgtoken": login_token,
+              "format": "json"
+          }, headers=UA)
+          login_result = r.json()["login"]["result"]
+          if login_result != "Success":
+              print(f"❌ Login failed: {login_result}")
+              exit(1)
+          print("✅ Login successful")
+
+          # --- CSRF Token ---
+          r = S.get(URL, params={"action": "query", "meta": "tokens", "format": "json"}, headers=UA)
+          csrf = r.json()["query"]["tokens"]["csrftoken"]
+
+          def create_entity(name, data, summary):
+              print(f"\n🔄 Creating {name}...")
+              r = S.post(URL, data={
+                  "action": "wbeditentity",
+                  "new": "item",
+                  "data": json.dumps(data),
+                  "summary": summary,
+                  "token": csrf,
+                  "format": "json"
+              }, headers=UA)
+              result = r.json()
+              if "entity" in result:
+                  qid = result["entity"]["id"]
+                  print(f"   ✅ {name} → {qid}")
+                  print(f"   🔗 https://www.wikidata.org/wiki/{qid}")
+                  return qid
+              else:
+                  err = result.get("error", {})
+                  print(f"   ❌ Failed: {err.get('info', json.dumps(err)[:300])}")
+                  return None
+
+          def make_item_claim(prop, numeric_id):
+              return [{"mainsnak": {"snaktype": "value", "property": prop, "datavalue": {"value": {"entity-type": "item", "numeric-id": numeric_id}, "type": "wikibase-entityid"}}, "type": "statement", "rank": "normal"}]
+
+          def make_string_claim(prop, value):
+              return [{"mainsnak": {"snaktype": "value", "property": prop, "datavalue": {"value": value, "type": "string"}}, "type": "statement", "rank": "normal"}]
+
+          # --- Client entity definitions ---
+          CLIENTS = {
+              "XOD": {
+                  "data": {
+                      "labels": {"en": {"language": "en", "value": "XOD"}, "he": {"language": "he", "value": "XOD"}},
+                      "descriptions": {
+                          "en": {"language": "en", "value": "medical aesthetics technology company specializing in aesthetic devices"},
+                          "he": {"language": "he", "value": "חברת טכנולוגיה רפואית המתמחה במכשור אסתטי"}
+                      },
+                      "aliases": {"en": [{"language": "en", "value": "XOD Aesthetics"}, {"language": "en", "value": "XOD - aesthetics on demand"}]},
+                      "claims": {
+                          "P31": make_item_claim("P31", 4830453),   # instance of: business enterprise
+                          "P452": make_item_claim("P452", 2996394), # industry: medical devices
+                          "P856": make_string_claim("P856", "https://xod.life"),  # official website
+                          "P17": make_item_claim("P17", 801)        # country: Israel
+                      }
+                  },
+                  "summary": "Creating item for XOD, medical aesthetics technology company"
+              },
+              "Kedma Solar": {
+                  "data": {
+                      "labels": {"en": {"language": "en", "value": "Kedma Solar"}, "he": {"language": "he", "value": "קדמה סולארי"}},
+                      "descriptions": {
+                          "en": {"language": "en", "value": "Israeli solar energy company providing photovoltaic installation services"},
+                          "he": {"language": "he", "value": "חברת אנרגיה סולארית ישראלית המספקת שירותי התקנת מערכות פוטו-וולטאיות"}
+                      },
+                      "aliases": {"en": [{"language": "en", "value": "Kedma Solar Energy"}], "he": [{"language": "he", "value": "קדמה סולאר"}]},
+                      "claims": {
+                          "P31": make_item_claim("P31", 4830453),
+                          "P452": make_item_claim("P452", 15879),   # industry: solar energy
+                          "P856": make_string_claim("P856", "https://kedma-solar.co.il"),
+                          "P17": make_item_claim("P17", 801)
+                      }
+                  },
+                  "summary": "Creating item for Kedma Solar, Israeli solar energy company"
+              },
+              "Smartup": {
+                  "data": {
+                      "labels": {"en": {"language": "en", "value": "Smartup"}, "he": {"language": "he", "value": "סמארטאפ"}},
+                      "descriptions": {
+                          "en": {"language": "en", "value": "Israeli technology education company offering professional tech courses and bootcamps"},
+                          "he": {"language": "he", "value": "חברת חינוך טכנולוגי ישראלית המציעה קורסים מקצועיים והכשרות בהייטק"}
+                      },
+                      "aliases": {"en": [{"language": "en", "value": "SmartUp Academy"}]},
+                      "claims": {
+                          "P31": make_item_claim("P31", 4830453),
+                          "P452": make_item_claim("P452", 8434),    # industry: education
+                          "P856": make_string_claim("P856", "https://smartup.co.il"),
+                          "P17": make_item_claim("P17", 801)
+                      }
+                  },
+                  "summary": "Creating item for Smartup, Israeli technology education company"
+              },
+              "Caio": {
+                  "data": {
+                      "labels": {"en": {"language": "en", "value": "Caio Design"}, "he": {"language": "he", "value": "קאיו"}},
+                      "descriptions": {
+                          "en": {"language": "en", "value": "Israeli custom carpentry and interior design studio"},
+                          "he": {"language": "he", "value": "סטודיו ישראלי לנגרות בהתאמה אישית ועיצוב פנים"}
+                      },
+                      "aliases": {"en": [{"language": "en", "value": "Caio Carpentry"}], "he": [{"language": "he", "value": "קאיו נגרות"}, {"language": "he", "value": "קאיו עיצוב"}]},
+                      "claims": {
+                          "P31": make_item_claim("P31", 4830453),
+                          "P452": make_item_claim("P452", 12199),   # industry: carpentry
+                          "P856": make_string_claim("P856", "https://caio.co.il"),
+                          "P17": make_item_claim("P17", 801)
+                      }
+                  },
+                  "summary": "Creating item for Caio, Israeli custom carpentry and design studio"
+              }
+          }
+
+          # --- Execute action ---
+          if ACTION == "create-all-clients":
+              results = {}
+              for name, config in CLIENTS.items():
+                  qid = create_entity(name, config["data"], config["summary"])
+                  if qid:
+                      results[name] = qid
+                  time.sleep(3)
+              
+              print("\n" + "=" * 50)
+              print("RESULTS:")
+              print("=" * 50)
+              for name, qid in results.items():
+                  print(f"  {name}: https://www.wikidata.org/wiki/{qid}")
+              print(f"\n✅ Created {len(results)}/{len(CLIENTS)} entities")
+
+          elif ACTION == "create-single":
+              if ENTITY_NAME not in CLIENTS:
+                  print(f"❌ Unknown entity: {ENTITY_NAME}")
+                  print(f"   Available: {', '.join(CLIENTS.keys())}")
+                  exit(1)
+              config = CLIENTS[ENTITY_NAME]
+              create_entity(ENTITY_NAME, config["data"], config["summary"])
+
+          elif ACTION == "update-entity":
+              if not QID or not PROPERTY or not VALUE:
+                  print("❌ update-entity requires qid, property, and value")
+                  exit(1)
+              print(f"🔄 Updating {QID}: {PROPERTY} = {VALUE}")
+              
+              # Determine if value is a QID (item reference) or string
+              if VALUE.startswith("Q") and VALUE[1:].isdigit():
+                  claim_data = {"mainsnak": {"snaktype": "value", "property": PROPERTY, "datavalue": {"value": {"entity-type": "item", "numeric-id": int(VALUE[1:])}, "type": "wikibase-entityid"}}, "type": "statement", "rank": "normal"}
+              else:
+                  claim_data = {"mainsnak": {"snaktype": "value", "property": PROPERTY, "datavalue": {"value": VALUE, "type": "string"}}, "type": "statement", "rank": "normal"}
+              
+              r = S.post(URL, data={
+                  "action": "wbcreateclaim",
+                  "entity": QID,
+                  "snaktype": "value",
+                  "property": PROPERTY,
+                  "value": json.dumps(claim_data["mainsnak"]["datavalue"]["value"]),
+                  "summary": f"Adding {PROPERTY} via StrudelBot",
+                  "token": csrf,
+                  "format": "json"
+              }, headers=UA)
+              result = r.json()
+              if "claim" in result:
+                  print(f"   ✅ Property added successfully")
+              else:
+                  print(f"   ❌ Failed: {json.dumps(result.get('error', result))[:300]}")
+
+          print("\n🏁 Done!")
+          PYEOF
