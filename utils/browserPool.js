@@ -46,6 +46,13 @@ class BrowserPool {
                 ]
             });
             
+            this.browser.on('disconnected', () => {
+                console.warn('⚠️ Browser disconnected — will reinitialize on next request');
+                this.isInitialized = false;
+                this.browser = null;
+                this.pages.clear();
+            });
+
             this.isInitialized = true;
             console.log('✅ Browser pool initialized successfully');
         } catch (error) {
@@ -61,7 +68,8 @@ class BrowserPool {
      * @returns {Promise<Object>} - אובייקט המכיל את הדף והקונטקסט
      */
     async getPage(id = null, options = {}) {
-        if (!this.isInitialized) {
+        if (!this.isInitialized || !this.browser) {
+            this.isInitialized = false;
             await this.initialize();
         }
 
