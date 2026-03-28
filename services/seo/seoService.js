@@ -47,7 +47,6 @@ async function performSeoAudit(url, options = {}) {
     timeout = 60000,
     blockThirdParties = true,
     includeMobile = false,
-    compact = false,
     language // אופציונלי: לאכוף שפה לניתוח ביטויים
   } = options;
 
@@ -279,23 +278,6 @@ async function performSeoAudit(url, options = {}) {
         screenshot: includeScreenshot ? screenshot : null
       }
     };
-
-    // === Compact mode: strip heavy data ===
-    if (compact) {
-      if (results.results.contentAnalysis?.text) {
-        delete results.results.contentAnalysis.text.rawText;
-      }
-      delete results.results.screenshot;
-      // Keep only first 3 headings per level
-      if (results.results.contentAnalysis?.headings) {
-        for (const level of ['h1', 'h2', 'h3']) {
-          if (results.results.contentAnalysis.headings[level]) {
-            results.results.contentAnalysis.headings[level] =
-              results.results.contentAnalysis.headings[level].slice(0, 3);
-          }
-        }
-      }
-    }
 
     console.log(`✅ SEO audit completed - Status: ${statusCode} - Score: ${seoScore.total}/100`);
     return results;

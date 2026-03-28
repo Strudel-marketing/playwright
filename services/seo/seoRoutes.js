@@ -32,7 +32,6 @@ router.post('/audit', async (req, res) => {
           timeout: options?.timeout || 60000,
           blockThirdParties: options?.blockThirdParties !== false,
           includeMobile: options?.includeMobile || false,
-          compact: options?.compact || false,
           ...options
         });
         
