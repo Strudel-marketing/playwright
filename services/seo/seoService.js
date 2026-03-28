@@ -43,9 +43,11 @@ async function performSeoAudit(url, options = {}) {
 
   const {
     includeScreenshot = true,
-    waitUntil = 'domcontentloaded', // בטוח יותר כברירת מחדל
-    timeout = 45000,
+    waitUntil = 'networkidle', // networkidle for CSR/SPA sites (React, Next, Vue)
+    timeout = 60000,
     blockThirdParties = true,
+    includeMobile = false,
+    compact = false,
     language // אופציונלי: לאכוף שפה לניתוח ביטויים
   } = options;
 
@@ -97,6 +99,58 @@ async function performSeoAudit(url, options = {}) {
       page.waitForTimeout(3000)
     ]);
 
+    // Hydration detection for CSR/SPA frameworks (React, Next.js, Vue, etc.)
+    await Promise.race([
+      page.waitForFunction(() => {
+        // React/Next/Vue hydration markers
+        const root = document.getElementById('__next') || document.getElementById('root') || document.getElementById('app');
+        if (root && root.children.length > 0 && document.body.innerText.length > 100) return true;
+        // Generic: wait for meaningful content
+        const paragraphs = document.querySelectorAll('p');
+        return paragraphs.length >= 2 && document.body.innerText.length > 200;
+      }, { timeout: 10000 }),
+      page.waitForTimeout(10000) // absolute max wait
+    ]);
+
+    // === Core Web Vitals measurement ===
+    const cwv = await page.evaluate(() => {
+      return new Promise((resolve) => {
+        const metrics = { lcp: null, cls: null, ttfb: null };
+
+        // LCP
+        const lcpObserver = new PerformanceObserver((list) => {
+          const entries = list.getEntries();
+          if (entries.length > 0) {
+            metrics.lcp = entries[entries.length - 1].startTime;
+          }
+        });
+        try { lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true }); } catch(e) {}
+
+        // CLS
+        const clsObserver = new PerformanceObserver((list) => {
+          let clsValue = 0;
+          for (const entry of list.getEntries()) {
+            if (!entry.hadRecentInput) clsValue += entry.value;
+          }
+          metrics.cls = clsValue;
+        });
+        try { clsObserver.observe({ type: 'layout-shift', buffered: true }); } catch(e) {}
+
+        // TTFB from Navigation Timing
+        const navEntry = performance.getEntriesByType('navigation')[0];
+        if (navEntry) {
+          metrics.ttfb = navEntry.responseStart - navEntry.requestStart;
+        }
+
+        // Give observers 3 seconds to collect
+        setTimeout(() => {
+          lcpObserver.disconnect();
+          clsObserver.disconnect();
+          resolve(metrics);
+        }, 3000);
+      });
+    });
+
     // === ניתוחים בדפדפן ===
     const basicAnalysis = await extractBasicData(page, url);
     const contentAnalysis = await analyzeContentAndMedia(page);
@@ -138,11 +192,70 @@ async function performSeoAudit(url, options = {}) {
       screenshot = await captureScreenshot(page);
     }
 
-    // חישוב ציון (עם loadTime)
+    // === Mobile Audit ===
+    let mobileAudit = null;
+    if (includeMobile) {
+      try {
+        const mobileContext = await browserPool.browser.newContext({
+          viewport: { width: 390, height: 844 }, // iPhone 14 Pro
+          userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1'
+        });
+        const mobilePage = await mobileContext.newPage();
+
+        try {
+          await mobilePage.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+
+          mobileAudit = await mobilePage.evaluate(() => ({
+            // Tap targets - elements too small to tap
+            smallTapTargets: Array.from(document.querySelectorAll('a, button, input, select'))
+              .filter(el => {
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44);
+              }).length,
+
+            // Horizontal scroll
+            hasHorizontalScroll: document.documentElement.scrollWidth > window.innerWidth + 5,
+
+            // Font size - text too small for mobile
+            smallText: Array.from(document.querySelectorAll('p, span, li, a'))
+              .filter(el => {
+                const size = parseFloat(window.getComputedStyle(el).fontSize);
+                return size < 14 && el.textContent.trim().length > 10;
+              }).length,
+
+            // Viewport dimensions
+            viewportWidth: window.innerWidth,
+            contentWidth: document.documentElement.scrollWidth,
+
+            // Fixed elements that might block content
+            fixedElements: Array.from(document.querySelectorAll('*'))
+              .filter(el => {
+                const style = window.getComputedStyle(el);
+                return style.position === 'fixed' && el.getBoundingClientRect().height > 100;
+              }).length
+          }));
+        } finally {
+          await mobilePage.close();
+          await mobileContext.close();
+        }
+      } catch (mobileErr) {
+        console.warn('⚠️ Mobile audit failed:', mobileErr.message);
+      }
+    }
+
+    // Core Web Vitals object
+    const coreWebVitals = {
+      lcp: cwv.lcp,    // ms - good: <2500, needs improvement: <4000, poor: >4000
+      cls: cwv.cls,    // score - good: <0.1, needs improvement: <0.25, poor: >0.25
+      ttfb: cwv.ttfb,  // ms - good: <800, needs improvement: <1800, poor: >1800
+      loadTime         // existing navigation time
+    };
+
+    // חישוב ציון (עם loadTime + CWV)
     const seoScore = calculateSeoScore({
       ...basicAnalysis,
       ...contentAnalysis
-    }, loadTime);
+    }, loadTime, coreWebVitals);
 
     const results = {
       success: true,
@@ -161,9 +274,28 @@ async function performSeoAudit(url, options = {}) {
         contentAnalysis: contentAnalysis.content,
         linkAnalysis: contentAnalysis.links,
         structuredData: basicAnalysis.structuredData,
+        coreWebVitals,
+        mobileAudit,
         screenshot: includeScreenshot ? screenshot : null
       }
     };
+
+    // === Compact mode: strip heavy data ===
+    if (compact) {
+      if (results.results.contentAnalysis?.text) {
+        delete results.results.contentAnalysis.text.rawText;
+      }
+      delete results.results.screenshot;
+      // Keep only first 3 headings per level
+      if (results.results.contentAnalysis?.headings) {
+        for (const level of ['h1', 'h2', 'h3']) {
+          if (results.results.contentAnalysis.headings[level]) {
+            results.results.contentAnalysis.headings[level] =
+              results.results.contentAnalysis.headings[level].slice(0, 3);
+          }
+        }
+      }
+    }
 
     console.log(`✅ SEO audit completed - Status: ${statusCode} - Score: ${seoScore.total}/100`);
     return results;
@@ -713,14 +845,14 @@ function generateReadabilityRecommendations(details, avgWordsPerSentence, totalP
 }
 
 // === חישוב ציון SEO משופר עם איזון מחדש ===
-function calculateSeoScore(results, loadTime = 0) {
+function calculateSeoScore(results, loadTime = 0, coreWebVitals = {}) {
   const categories = {};
 
-  // === Basic (20) - הופחת מ-25 ===
+  // === Basic (15) - הופחת מ-20 ===
   let basicScore = 0;
   const basicIssues = [];
 
-  // Title (10 נקודות) - משופר עם טווחים מדויקים
+  // Title (5 נקודות)
   if (results.seoChecks?.hasTitle) {
     const titleLen = results.seoChecks?.titleLength || 0;
     if (titleLen >= 50 && titleLen <= 60) {
@@ -728,10 +860,10 @@ function calculateSeoScore(results, loadTime = 0) {
     } else if (titleLen >= 40 && titleLen <= 65) {
       basicScore += 3; // טוב
     } else if (titleLen > 65) {
-      basicScore += 1; // ארוך מדי
+      basicScore += 1;
       basicIssues.push(`כותרת ארוכה מדי (${titleLen} תווים, מומלץ 50-60)`);
     } else if (titleLen >= 30) {
-      basicScore += 1; // קצר מדי
+      basicScore += 1;
       basicIssues.push(`כותרת קצרה מדי (${titleLen} תווים, מומלץ 50-60)`);
     } else {
       basicIssues.push(`כותרת קצרה מדי (${titleLen} תווים)`);
@@ -740,7 +872,7 @@ function calculateSeoScore(results, loadTime = 0) {
     basicIssues.push("חסר כותרת");
   }
 
-  // Meta Description (10 נקודות) - משופר עם טווחים מדויקים
+  // Meta Description (5 נקודות)
   const metaDescLen = results.seoChecks?.metaDescriptionLength || 0;
   if (results.seoChecks?.hasMetaDescription) {
     if (metaDescLen >= 140 && metaDescLen <= 160) {
@@ -748,10 +880,10 @@ function calculateSeoScore(results, loadTime = 0) {
     } else if (metaDescLen >= 120 && metaDescLen <= 165) {
       basicScore += 3; // טוב
     } else if (metaDescLen > 165) {
-      basicScore += 1; // ארוך מדי
+      basicScore += 1;
       basicIssues.push(`Meta description ארוך מדי (${metaDescLen} תווים, מומלץ 140-160)`);
     } else if (metaDescLen >= 100) {
-      basicScore += 1; // קצר מדי
+      basicScore += 1;
       basicIssues.push(`Meta description קצר מדי (${metaDescLen} תווים, מומלץ 140-160)`);
     } else {
       basicIssues.push(`Meta description קצר מדי (${metaDescLen} תווים)`);
@@ -770,29 +902,29 @@ function calculateSeoScore(results, loadTime = 0) {
     basicIssues.push("חסר כותרת H1");
   }
 
-  categories.basic = { score: basicScore, max: 20, issues: basicIssues };
+  categories.basic = { score: basicScore, max: 15, issues: basicIssues };
 
-  // === Technical (25) — הועלה מ-20, יותר דגש ===
+  // === Technical (20) — מאוזן מחדש ===
   let technicalScore = 0;
   const technicalIssues = [];
 
-  // HTTPS (8 נקודות) - קריטי!
+  // HTTPS (5 נקודות) - קריטי!
   if (results.seoChecks?.isHttps) {
-    technicalScore += 8;
+    technicalScore += 5;
   } else {
     technicalIssues.push("האתר לא מאובטח (לא HTTPS) - קריטי!");
   }
 
-  // Canonical (5 נקודות)
+  // Canonical (4 נקודות)
   if (results.seoChecks?.hasCanonical) {
-    technicalScore += 5;
+    technicalScore += 4;
   } else {
     technicalIssues.push("חסר canonical URL");
   }
 
-  // Viewport (5 נקודות) - קריטי למובייל
+  // Viewport (4 נקודות) - קריטי למובייל
   if (results.seoChecks?.hasViewport) {
-    technicalScore += 5;
+    technicalScore += 4;
   } else {
     technicalIssues.push("חסר viewport meta tag - חובה למובייל");
   }
@@ -823,7 +955,7 @@ function calculateSeoScore(results, loadTime = 0) {
     technicalScore += 1;
   }
 
-  categories.technical = { score: technicalScore, max: 25, issues: technicalIssues };
+  categories.technical = { score: technicalScore, max: 20, issues: technicalIssues };
 
   // === Content (25) — הועלה מ-20, התוכן הוא מלך! ===
   let contentScore = 0;
@@ -905,11 +1037,11 @@ function calculateSeoScore(results, loadTime = 0) {
 
   categories.content = { score: contentScore, max: 25, issues: contentIssues };
 
-  // === Media & UX (15) — מאוזן מחדש ===
+  // === Media & UX (10) — מאוזן מחדש ===
   let mediaScore = 0;
   const mediaIssues = [];
 
-  // תמונות עם Alt (6 נקודות) - gradient
+  // תמונות עם Alt (4 נקודות) - gradient
   const totalImages = results.seoChecks?.totalImages || 0;
   const imagesWithAlt = results.seoChecks?.imagesWithAlt || 0;
   const imagesWithoutAlt = results.seoChecks?.imagesWithoutAlt || 0;
@@ -917,74 +1049,72 @@ function calculateSeoScore(results, loadTime = 0) {
   if (totalImages > 0) {
     const altRatio = imagesWithAlt / totalImages;
     if (altRatio === 1) {
-      mediaScore += 6; // כל התמונות עם alt
+      mediaScore += 4; // כל התמונות עם alt
     } else if (altRatio >= 0.8) {
-      mediaScore += 4; // 80%+ עם alt
+      mediaScore += 3; // 80%+ עם alt
       mediaIssues.push(`${imagesWithoutAlt} תמונות ללא alt text`);
     } else if (altRatio >= 0.5) {
-      mediaScore += 2; // 50%+ עם alt
+      mediaScore += 1; // 50%+ עם alt
       mediaIssues.push(`${imagesWithoutAlt} תמונות ללא alt text`);
     } else {
       mediaIssues.push(`רוב התמונות ללא alt text (${imagesWithoutAlt}/${totalImages})`);
     }
   }
 
-  // Responsive (4 נקודות) - הופחת מ-7
+  // Responsive (3 נקודות)
   if (results.seoChecks?.isResponsive) {
-    mediaScore += 4;
+    mediaScore += 3;
   } else {
     mediaIssues.push("האתר לא responsive - חובה למובייל");
   }
 
-  // קישורים ללא טקסט (3 נקודות)
+  // קישורים ללא טקסט (2 נקודות)
   if ((results.linkAnalysis?.linksWithoutText ?? 0) === 0) {
-    mediaScore += 3;
+    mediaScore += 2;
   } else {
     const emptyLinks = results.linkAnalysis?.linksWithoutText || 0;
     mediaIssues.push(`${emptyLinks} קישורים ללא טקסט`);
   }
 
-  // Load Time (2 נקודות) - חדש!
+  // Load Time (1 נקודה)
   if (loadTime > 0) {
     if (loadTime < 2000) {
-      mediaScore += 2;
-    } else if (loadTime < 3000) {
       mediaScore += 1;
     } else if (loadTime >= 5000) {
       mediaIssues.push(`זמן טעינה איטי (${(loadTime / 1000).toFixed(1)}s)`);
     }
   }
 
-  categories.mediaUX = { score: mediaScore, max: 15, issues: mediaIssues };
+  categories.mediaUX = { score: mediaScore, max: 10, issues: mediaIssues };
 
-  // === Social (8) — הופחת מ-10, הוצאנו external links ===
+  // === Social (5) — הופחת מ-8 ===
   let socialScore = 0;
   const socialIssues = [];
 
-  // Open Graph (4 נקודות)
+  // Open Graph (2 נקודות)
   if (results.seoChecks?.hasOpenGraph) {
-    socialScore += 4;
+    socialScore += 2;
   } else {
     socialIssues.push("חסר Open Graph tags");
   }
 
-  // OG Image (3 נקודות)
+  // OG Image (2 נקודות)
   const ogImage = results.metaTags?.openGraph?.image;
   if (ogImage) {
-    socialScore += 3;
+    socialScore += 2;
   } else {
     socialIssues.push("חסר תמונה לשיתוף ברשתות חברתיות (og:image)");
   }
 
-  // Twitter Card (1 נקודה) - חדש!
+  // Twitter Card (1 נקודה)
   const twitterCard = results.metaTags?.twitter?.card;
   if (twitterCard) {
     socialScore += 1;
   }
 
-  categories.social = { score: socialScore, max: 8, issues: socialIssues };
+  categories.social = { score: socialScore, max: 5, issues: socialIssues };
 
-  // === Structured Data (7) — ניתוח מתקדם ל-LLM readiness ===
+  // === Structured Data (15) — הועלה מ-7, ניתוח מתקדם ===
   let structuredScore = 0;
   const structuredIssues = [];
 
@@ -993,7 +1123,7 @@ function calculateSeoScore(results, loadTime = 0) {
   const criticalSchemas = structuredData.critical_schemas || {};
   const quality = structuredData.quality || {};
 
-  // Has JSON-LD (2 נקודות)
+  // Schema JSON validity (2 נקודות)
   if (results.seoChecks?.hasJsonLd && quality.hasValidJSON) {
     structuredScore += 2;
   } else if (results.seoChecks?.hasJsonLd && !quality.hasValidJSON) {
@@ -1003,13 +1133,44 @@ function calculateSeoScore(results, loadTime = 0) {
     structuredIssues.push("חסר structured data (JSON-LD) - קריטי ל-LLMs!");
   }
 
+  // Required fields completeness (5 נקודות) - name, url, @type on every entity
+  if (quality.hasStructuredProperties) {
+    structuredScore += 3; // has name + url
+  } else if (results.seoChecks?.hasJsonLd) {
+    structuredIssues.push("Schema חסר שדות חובה (name, url)");
+  }
+  if (quality.hasContext) {
+    structuredScore += 2; // has @context
+  } else if (results.seoChecks?.hasJsonLd) {
+    structuredIssues.push("Schema חסר @context");
+  }
+
+  // Publisher/Author completeness for Article (3 נקודות)
+  if (criticalSchemas.hasArticle) {
+    const schemasStr = JSON.stringify(structuredData);
+    const hasAuthor = schemasStr.includes('"author"');
+    const hasPublisher = schemasStr.includes('"publisher"');
+    if (hasAuthor && hasPublisher) {
+      structuredScore += 3;
+    } else if (hasAuthor || hasPublisher) {
+      structuredScore += 1;
+      structuredIssues.push("Article schema חסר author או publisher");
+    } else {
+      structuredIssues.push("Article schema חסר author ו-publisher");
+    }
+  } else {
+    // Non-article pages get partial credit if they have rich properties
+    if (quality.hasImages || quality.hasMainEntity) {
+      structuredScore += 2;
+    }
+  }
+
   // LLM Readiness Score (5 נקודות) - הציון החשוב ביותר!
   const llmScore = llmReadiness.score || 0;
   if (llmScore >= 80) {
     structuredScore += 5;
   } else if (llmScore >= 60) {
     structuredScore += 3;
-    // הוסף המלצות מהLLM analysis
     if (llmReadiness.recommendations) {
       llmReadiness.recommendations.slice(0, 2).forEach(r => structuredIssues.push(r));
     }
@@ -1023,7 +1184,7 @@ function calculateSeoScore(results, loadTime = 0) {
   // Add LLM readiness info to results
   categories.structured = {
     score: structuredScore,
-    max: 7,
+    max: 15,
     issues: structuredIssues,
     llmReadiness: {
       score: llmScore,
@@ -1034,8 +1195,53 @@ function calculateSeoScore(results, loadTime = 0) {
     }
   };
 
+  // === Core Web Vitals (10) — קטגוריה חדשה ===
+  let cwvScore = 0;
+  const cwvIssues = [];
+
+  // LCP (4 נקודות)
+  const lcpValue = coreWebVitals.lcp;
+  if (lcpValue != null) {
+    if (lcpValue < 2500) {
+      cwvScore += 4;
+    } else if (lcpValue < 4000) {
+      cwvScore += 2;
+      cwvIssues.push(`LCP צריך שיפור (${(lcpValue / 1000).toFixed(1)}s, מומלץ <2.5s)`);
+    } else {
+      cwvIssues.push(`LCP איטי (${(lcpValue / 1000).toFixed(1)}s, מומלץ <2.5s)`);
+    }
+  }
+
+  // CLS (3 נקודות)
+  const clsValue = coreWebVitals.cls;
+  if (clsValue != null) {
+    if (clsValue < 0.1) {
+      cwvScore += 3;
+    } else if (clsValue < 0.25) {
+      cwvScore += 1;
+      cwvIssues.push(`CLS צריך שיפור (${clsValue.toFixed(3)}, מומלץ <0.1)`);
+    } else {
+      cwvIssues.push(`CLS גבוה (${clsValue.toFixed(3)}, מומלץ <0.1)`);
+    }
+  }
+
+  // TTFB (3 נקודות)
+  const ttfbValue = coreWebVitals.ttfb;
+  if (ttfbValue != null) {
+    if (ttfbValue < 800) {
+      cwvScore += 3;
+    } else if (ttfbValue < 1800) {
+      cwvScore += 1;
+      cwvIssues.push(`TTFB צריך שיפור (${Math.round(ttfbValue)}ms, מומלץ <800ms)`);
+    } else {
+      cwvIssues.push(`TTFB איטי (${Math.round(ttfbValue)}ms, מומלץ <800ms)`);
+    }
+  }
+
+  categories.coreWebVitals = { score: cwvScore, max: 10, issues: cwvIssues };
+
   // === חישוב ציון כולל ===
-  const totalScore = basicScore + technicalScore + contentScore + mediaScore + socialScore + structuredScore;
+  const totalScore = basicScore + technicalScore + contentScore + mediaScore + socialScore + structuredScore + cwvScore;
 
   let overallQuality;
   if (totalScore >= 85) overallQuality = "excellent";
@@ -1091,12 +1297,13 @@ function calculateSeoScore(results, loadTime = 0) {
     quality: overallQuality,
     categories,
     breakdown: {
-      basic: `${basicScore}/20`,
-      technical: `${technicalScore}/25`,
+      basic: `${basicScore}/15`,
+      technical: `${technicalScore}/20`,
       content: `${contentScore}/25`,
-      mediaUX: `${mediaScore}/15`,
-      social: `${socialScore}/8`,
-      structured: `${structuredScore}/7`
+      mediaUX: `${mediaScore}/10`,
+      social: `${socialScore}/5`,
+      structured: `${structuredScore}/15`,
+      coreWebVitals: `${cwvScore}/10`
     },
     // New: Detailed recommendations with how-to-fix
     recommendations: {

@@ -28,9 +28,11 @@ router.post('/audit', async (req, res) => {
     try {
         const results = await seoService.performSeoAudit(url, {
           includeScreenshot: includeScreenshot !== false,
-          waitUntil: options?.waitUntil || 'domcontentloaded',
+          waitUntil: options?.waitUntil || 'networkidle',
           timeout: options?.timeout || 60000,
           blockThirdParties: options?.blockThirdParties !== false,
+          includeMobile: options?.includeMobile || false,
+          compact: options?.compact || false,
           ...options
         });
         
