@@ -75,6 +75,45 @@ async function performSeoAudit(url, options = {}) {
       'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7'
     });
 
+    // === Resource Error Tracking (JS/CSS/Fonts) ===
+    const resourceErrors = [];
+    const redirectChain = [];
+
+    page.on('response', (resp) => {
+      const reqUrl = resp.url();
+      const status = resp.status();
+      const resourceType = resp.request().resourceType();
+
+      // Track failed resources (JS, CSS, Fonts)
+      if (status >= 400 && ['script', 'stylesheet', 'font'].includes(resourceType)) {
+        resourceErrors.push({
+          url: reqUrl,
+          status,
+          type: resourceType,
+          statusText: resp.statusText()
+        });
+      }
+
+      // Track redirect chain for the main document
+      if ([301, 302, 307, 308].includes(status) && resourceType === 'document') {
+        redirectChain.push({
+          from: reqUrl,
+          to: resp.headers()['location'] || '',
+          status,
+          type: [301, 308].includes(status) ? 'permanent' : 'temporary'
+        });
+      }
+    });
+
+    // Track JS console errors
+    const jsErrors = [];
+    page.on('pageerror', (error) => {
+      jsErrors.push({
+        message: error.message,
+        name: error.name
+      });
+    });
+
     const navigationStart = Date.now();
 
     // ✅ FIXED: Use safeNavigate instead of page.goto
@@ -250,6 +289,24 @@ async function performSeoAudit(url, options = {}) {
       loadTime         // existing navigation time
     };
 
+    // === Resource Errors Summary ===
+    const resourceErrorsSummary = {
+      resource_errors: resourceErrors,
+      resource_errors_count: resourceErrors.length,
+      js_errors_count: resourceErrors.filter(e => e.type === 'script').length,
+      css_errors_count: resourceErrors.filter(e => e.type === 'stylesheet').length,
+      font_errors_count: resourceErrors.filter(e => e.type === 'font').length,
+      js_console_errors: jsErrors.slice(0, 20) // limit to 20
+    };
+
+    // === Redirect Chain Summary ===
+    const redirectInfo = {
+      initial_url: url,
+      final_url: page.url(),
+      redirect_chain_length: redirectChain.length,
+      redirect_chain: redirectChain
+    };
+
     // חישוב ציון (עם loadTime + CWV)
     const seoScore = calculateSeoScore({
       ...basicAnalysis,
@@ -274,6 +331,8 @@ async function performSeoAudit(url, options = {}) {
         linkAnalysis: contentAnalysis.links,
         structuredData: basicAnalysis.structuredData,
         coreWebVitals,
+        resourceErrors: resourceErrorsSummary,
+        redirectInfo,
         mobileAudit,
         screenshot: includeScreenshot ? screenshot : null
       }
@@ -684,10 +743,41 @@ async function analyzeContentAndMedia(page) {
       }
 
       let internal = 0, external = 0;
+      const internalUrls = [];
+      const externalUrls = [];
+
+      // Also collect ALL links on the page (including nav) for site-wide analysis
+      const allPageLinks = Array.from(document.querySelectorAll('a[href]'));
+      const allInternalUrls = new Set();
+      const allExternalUrls = new Set();
+
+      allPageLinks.forEach(link => {
+        try {
+          const linkUrl = new URL(link.href, window.location.href);
+          // Skip anchors, javascript:, mailto:, tel:
+          if (['javascript:', 'mailto:', 'tel:'].includes(linkUrl.protocol)) return;
+          if (linkUrl.hash && linkUrl.pathname === window.location.pathname && linkUrl.hostname === currentDomain) return;
+
+          const cleanUrl = linkUrl.origin + linkUrl.pathname + linkUrl.search;
+          if (linkUrl.hostname === currentDomain) {
+            allInternalUrls.add(cleanUrl);
+          } else {
+            allExternalUrls.add(cleanUrl);
+          }
+        } catch {}
+      });
+
       contentLinks.forEach(link => {
         try {
           const linkUrl = new URL(link.href, window.location.href);
-          if (linkUrl.hostname === currentDomain) internal++; else external++;
+          const cleanUrl = linkUrl.origin + linkUrl.pathname + linkUrl.search;
+          if (linkUrl.hostname === currentDomain) {
+            internal++;
+            if (!internalUrls.includes(cleanUrl)) internalUrls.push(cleanUrl);
+          } else {
+            external++;
+            if (!externalUrls.includes(cleanUrl)) externalUrls.push(cleanUrl);
+          }
         } catch {}
       });
 
@@ -695,6 +785,10 @@ async function analyzeContentAndMedia(page) {
         total: contentLinks.length,
         internal,
         external,
+        internalUrls,
+        externalUrls,
+        allInternalUrls: Array.from(allInternalUrls),
+        allExternalUrls: Array.from(allExternalUrls),
         contentOnly: true,
         mainContentFound: !!mainContentArea,
         linksWithoutText: contentLinks.filter(link => !link.textContent.trim()).length
