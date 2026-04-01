@@ -22,7 +22,8 @@ function normalizeUrl(urlStr) {
   try {
     const parsed = new URL(urlStr);
     let pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-    return (parsed.origin + pathname + parsed.search).toLowerCase();
+    // Strip query params for dedup (e.g. /cja/?ref=homepage == /cja/)
+    return (parsed.origin + pathname).toLowerCase();
   } catch {
     return urlStr.toLowerCase();
   }
@@ -287,9 +288,10 @@ async function performSiteAudit(startUrl, options = {}) {
 
   // Crawl pages with concurrency control
   while (urlQueue.length > 0 && crawledPages.length < maxPages) {
-    // Take a batch of URLs to process concurrently
+    // Take a batch of URLs to process concurrently (respect maxPages)
+    const remaining = maxPages - crawledPages.length;
     const batch = [];
-    while (batch.length < pageConcurrency && urlQueue.length > 0) {
+    while (batch.length < pageConcurrency && batch.length < remaining && urlQueue.length > 0) {
       const item = urlQueue.shift();
       const normalized = normalizeUrl(item.url);
 
@@ -465,6 +467,14 @@ async function performSiteAudit(startUrl, options = {}) {
   let totalJsErrors = 0;
   let totalCssErrors = 0;
   let totalFontErrors = 0;
+  let totalImageErrors = 0;
+  let totalMediaErrors = 0;
+  let totalResourceRedirects = 0;
+  let totalJsRedirects = 0;
+  let totalCssRedirects = 0;
+  let totalFontRedirects = 0;
+  let totalImageRedirects = 0;
+  let totalMediaRedirects = 0;
 
   for (const page of crawledPages) {
     const re = page.resourceErrors || {};
@@ -472,6 +482,14 @@ async function performSiteAudit(startUrl, options = {}) {
     totalJsErrors += re.js_errors_count || 0;
     totalCssErrors += re.css_errors_count || 0;
     totalFontErrors += re.font_errors_count || 0;
+    totalImageErrors += re.image_errors_count || 0;
+    totalMediaErrors += re.media_errors_count || 0;
+    totalResourceRedirects += re.resource_redirects_count || 0;
+    totalJsRedirects += re.js_redirects_count || 0;
+    totalCssRedirects += re.css_redirects_count || 0;
+    totalFontRedirects += re.font_redirects_count || 0;
+    totalImageRedirects += re.image_redirects_count || 0;
+    totalMediaRedirects += re.media_redirects_count || 0;
   }
 
   // Redirect chains summary
@@ -515,7 +533,11 @@ async function performSiteAudit(startUrl, options = {}) {
     js_errors_count: page.resourceErrors?.js_errors_count || 0,
     css_errors_count: page.resourceErrors?.css_errors_count || 0,
     font_errors_count: page.resourceErrors?.font_errors_count || 0,
+    image_errors_count: page.resourceErrors?.image_errors_count || 0,
+    media_errors_count: page.resourceErrors?.media_errors_count || 0,
     resource_errors: page.resourceErrors?.resource_errors || [],
+    resource_redirects_count: page.resourceErrors?.resource_redirects_count || 0,
+    resource_redirects: page.resourceErrors?.resource_redirects || [],
 
     // Duplicates
     has_duplicate_title: page.has_duplicate_title || false,
@@ -581,7 +603,17 @@ async function performSiteAudit(startUrl, options = {}) {
         total: totalResourceErrors,
         js: totalJsErrors,
         css: totalCssErrors,
-        fonts: totalFontErrors
+        fonts: totalFontErrors,
+        images: totalImageErrors,
+        media: totalMediaErrors
+      },
+
+      resource_redirects: {
+        total: totalResourceRedirects,
+        js: totalJsRedirects,
+        css: totalCssRedirects,
+        fonts: totalFontRedirects,
+        images: totalImageRedirects
       },
 
       duplicates: {

@@ -104,16 +104,18 @@ router.post('/site-audit', async (req, res) => {
     }
 
     try {
+        // Accept params from both top-level body and nested options
+        const opts = { ...req.body, ...options };
         const results = await siteAuditService.performSiteAudit(url, {
-            maxPages: options.maxPages || 100,
-            maxDepth: options.maxDepth || 5,
-            validateBrokenLinks: options.validateBrokenLinks !== false,
-            linkValidationConcurrency: options.linkValidationConcurrency || 10,
-            pageConcurrency: options.pageConcurrency || 3,
-            skipLinkDomains: options.skipLinkDomains || undefined,
-            includeScreenshots: options.includeScreenshots || false,
-            includeMobile: options.includeMobile || false,
-            timeout: options.timeout || 30000
+            maxPages: opts.maxPages || 100,
+            maxDepth: opts.maxDepth || 5,
+            validateBrokenLinks: opts.validateBrokenLinks !== false,
+            linkValidationConcurrency: opts.linkValidationConcurrency || 10,
+            pageConcurrency: opts.pageConcurrency || 3,
+            skipLinkDomains: opts.skipLinkDomains || undefined,
+            includeScreenshots: opts.includeScreenshots || false,
+            includeMobile: opts.includeMobile || false,
+            timeout: opts.timeout || 30000
         });
 
         res.json(results);

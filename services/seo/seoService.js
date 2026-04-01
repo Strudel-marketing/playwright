@@ -75,8 +75,9 @@ async function performSeoAudit(url, options = {}) {
       'Accept-Language': 'he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7'
     });
 
-    // === Resource Error Tracking (JS/CSS/Fonts) ===
+    // === Resource Error Tracking (JS/CSS/Fonts/Images/Media) ===
     const resourceErrors = [];
+    const resourceRedirects = [];
     const redirectChain = [];
 
     page.on('response', (resp) => {
@@ -85,12 +86,23 @@ async function performSeoAudit(url, options = {}) {
       const resourceType = resp.request().resourceType();
 
       // Track failed resources (JS, CSS, Fonts)
-      if (status >= 400 && ['script', 'stylesheet', 'font'].includes(resourceType)) {
+      if (status >= 400 && ['script', 'stylesheet', 'font', 'image', 'media'].includes(resourceType)) {
         resourceErrors.push({
           url: reqUrl,
           status,
           type: resourceType,
           statusText: resp.statusText()
+        });
+      }
+
+      // Track 3XX redirected resources (separate from errors)
+      // Note: 304 Not Modified is handled transparently by Chromium (reports as 200)
+      if (status >= 300 && status < 400 && ['script', 'stylesheet', 'font', 'image', 'media'].includes(resourceType)) {
+        resourceRedirects.push({
+          url: reqUrl,
+          status,
+          type: resourceType,
+          redirectTo: resp.headers()['location'] || ''
         });
       }
 
@@ -296,6 +308,15 @@ async function performSeoAudit(url, options = {}) {
       js_errors_count: resourceErrors.filter(e => e.type === 'script').length,
       css_errors_count: resourceErrors.filter(e => e.type === 'stylesheet').length,
       font_errors_count: resourceErrors.filter(e => e.type === 'font').length,
+      image_errors_count: resourceErrors.filter(e => e.type === 'image').length,
+      media_errors_count: resourceErrors.filter(e => e.type === 'media').length,
+      resource_redirects: resourceRedirects,
+      resource_redirects_count: resourceRedirects.length,
+      js_redirects_count: resourceRedirects.filter(e => e.type === 'script').length,
+      css_redirects_count: resourceRedirects.filter(e => e.type === 'stylesheet').length,
+      font_redirects_count: resourceRedirects.filter(e => e.type === 'font').length,
+      image_redirects_count: resourceRedirects.filter(e => e.type === 'image').length,
+      media_redirects_count: resourceRedirects.filter(e => e.type === 'media').length,
       js_console_errors: jsErrors.slice(0, 20) // limit to 20
     };
 
