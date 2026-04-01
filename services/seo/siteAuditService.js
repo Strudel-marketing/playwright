@@ -250,7 +250,7 @@ function calculateClickDepth(pages, homepageUrl) {
  *
  * @param {string} startUrl - The homepage/starting URL
  * @param {Object} options - Configuration
- * @param {number} options.maxPages - Maximum pages to crawl (default: 100)
+ * @param {number} options.maxPages - Maximum pages to crawl (default: 500, 0 = unlimited)
  * @param {number} options.maxDepth - Maximum crawl depth (default: 5)
  * @param {boolean} options.validateBrokenLinks - Whether to check broken links (default: true)
  * @param {number} options.linkValidationConcurrency - Concurrent link checks (default: 10)
@@ -263,7 +263,7 @@ function calculateClickDepth(pages, homepageUrl) {
  */
 async function performSiteAudit(startUrl, options = {}) {
   const {
-    maxPages = 100,
+    maxPages = 500,
     maxDepth = 5,
     validateBrokenLinks = true,
     linkValidationConcurrency = 10,
@@ -286,10 +286,11 @@ async function performSiteAudit(startUrl, options = {}) {
   const visited = new Set();
   const failedUrls = [];
 
-  // Crawl pages with concurrency control
-  while (urlQueue.length > 0 && crawledPages.length < maxPages) {
+  // Crawl pages with concurrency control (maxPages=0 means unlimited)
+  const effectiveMaxPages = maxPages === 0 ? Infinity : maxPages;
+  while (urlQueue.length > 0 && crawledPages.length < effectiveMaxPages) {
     // Take a batch of URLs to process concurrently (respect maxPages)
-    const remaining = maxPages - crawledPages.length;
+    const remaining = effectiveMaxPages - crawledPages.length;
     const batch = [];
     while (batch.length < pageConcurrency && batch.length < remaining && urlQueue.length > 0) {
       const item = urlQueue.shift();

@@ -107,7 +107,7 @@ router.post('/site-audit', async (req, res) => {
         // Accept params from both top-level body and nested options
         const opts = { ...req.body, ...options };
         const results = await siteAuditService.performSiteAudit(url, {
-            maxPages: opts.maxPages || 100,
+            maxPages: opts.maxPages || 500,
             maxDepth: opts.maxDepth || 5,
             validateBrokenLinks: opts.validateBrokenLinks !== false,
             linkValidationConcurrency: opts.linkValidationConcurrency || 10,
