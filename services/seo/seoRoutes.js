@@ -7,6 +7,7 @@
 const express = require('express');
 const router = express.Router();
 const seoService = require('./seoService');
+const siteAuditService = require('./siteAuditService');
 
 /**
  * @route   POST /api/seo/audit
@@ -81,6 +82,48 @@ router.post('/quick-check', async (req, res) => {
             success: false,
             url,
             error: error.message || 'An error occurred during the quick SEO check'
+        });
+    }
+});
+
+/**
+ * @route   POST /api/seo/site-audit
+ * @desc    ביצוע ניתוח SEO site-wide - סריקת כל העמודים באתר
+ * @access  Public
+ */
+router.post('/site-audit', async (req, res) => {
+    console.log('🔍 Site Audit started for:', req.body.url);
+
+    const { url, options = {} } = req.body;
+
+    if (!url) {
+        return res.status(400).json({
+            success: false,
+            error: 'URL is required'
+        });
+    }
+
+    try {
+        const results = await siteAuditService.performSiteAudit(url, {
+            maxPages: options.maxPages || 100,
+            maxDepth: options.maxDepth || 5,
+            validateBrokenLinks: options.validateBrokenLinks !== false,
+            linkValidationConcurrency: options.linkValidationConcurrency || 10,
+            pageConcurrency: options.pageConcurrency || 3,
+            skipLinkDomains: options.skipLinkDomains || undefined,
+            includeScreenshots: options.includeScreenshots || false,
+            includeMobile: options.includeMobile || false,
+            timeout: options.timeout || 30000
+        });
+
+        res.json(results);
+    } catch (error) {
+        console.error('❌ Site Audit error:', error);
+
+        res.status(500).json({
+            success: false,
+            url,
+            error: error.message || 'An error occurred during the site audit'
         });
     }
 });
