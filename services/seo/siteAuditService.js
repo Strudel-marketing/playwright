@@ -27,21 +27,40 @@ const { validateLinks } = require('./linkValidator');
 const { URL } = require('url');
 
 /**
- * Normalize a URL for comparison (remove trailing slash, fragment, lowercase)
+ * Strip a leading "www." from a hostname (if present).
+ *
+ * Canonicalizing hostnames this way lets the crawler treat
+ * "www.example.com" and "example.com" as the SAME site — essential
+ * when a user passes a www URL and the server 301-redirects to the
+ * non-www canonical (or vice versa). Without this, in-page links
+ * extracted after the redirect have a different hostname from the
+ * starting URL and get rejected as "external", which collapses the
+ * whole crawl to a single page.
+ */
+function canonicalHost(hostname) {
+  if (!hostname) return '';
+  return hostname.toLowerCase().replace(/^www\./, '');
+}
+
+/**
+ * Normalize a URL for comparison (canonical host, remove trailing slash, lowercase).
+ * www. prefix is stripped so www and non-www resolve to the same normalized key.
  */
 function normalizeUrl(urlStr) {
   try {
     const parsed = new URL(urlStr);
+    const host = canonicalHost(parsed.hostname);
     let pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-    // Strip query params for dedup (e.g. /cja/?ref=homepage == /cja/)
-    return (parsed.origin + pathname).toLowerCase();
+    // Strip query params and www for dedup
+    // (e.g. https://www.example.com/cja/?ref=x == https://example.com/cja/)
+    return (parsed.protocol + '//' + host + pathname).toLowerCase();
   } catch {
     return urlStr.toLowerCase();
   }
 }
 
 /**
- * Get the domain from a URL
+ * Get the raw hostname from a URL.
  */
 function getDomain(urlStr) {
   try {
@@ -49,6 +68,14 @@ function getDomain(urlStr) {
   } catch {
     return '';
   }
+}
+
+/**
+ * Get the canonical (www-stripped, lower-cased) hostname from a URL.
+ * Use this for scope comparisons during crawling.
+ */
+function getCanonicalDomain(urlStr) {
+  return canonicalHost(getDomain(urlStr));
 }
 
 /**
@@ -496,6 +523,11 @@ async function performSiteAudit(startUrl, options = {}) {
 
   const startTime = Date.now();
   const domain = getDomain(startUrl);
+  // Canonical host for crawl-scope comparisons (strips "www.").
+  // We keep a Set so extra hostnames can be added after the first page
+  // loads and we learn the redirect target.
+  const scopeHosts = new Set([canonicalHost(domain)]);
+  const inScope = (u) => scopeHosts.has(getCanonicalDomain(u));
   const normalizedStart = normalizeUrl(startUrl);
 
   console.log(`🔍 Starting ${mode} audit for: ${startUrl}${isSinglePage ? '' : ` (max ${maxPages} pages)`}`);
@@ -580,13 +612,27 @@ async function performSiteAudit(startUrl, options = {}) {
 
       crawledPages.push(pageData);
 
+      // Learn the redirect-target host from the very first page we crawl.
+      // If the user started at https://www.example.com/ but the server
+      // 301-redirected to https://example.com/, Playwright's final URL is
+      // the non-www one and in-page JS extracts links under that host.
+      // We add the final_url's canonical host to the scope set so those
+      // links aren't rejected as "external". (canonicalHost already strips
+      // "www.", so the common www↔non-www case is covered too.)
+      const finalUrl = result.results?.redirectInfo?.final_url;
+      if (finalUrl) {
+        scopeHosts.add(getCanonicalDomain(finalUrl));
+      }
+
       // Discover new internal URLs to crawl
       if (depth < maxDepth && crawledPages.length < maxPages) {
         const internalUrls = result.results?.linkAnalysis?.allInternalUrls || [];
         for (const link of internalUrls) {
           const normalizedLink = normalizeUrl(link);
-          // Only crawl same-domain URLs that haven't been visited
-          if (!visited.has(normalizedLink) && getDomain(link) === domain) {
+          // Only crawl in-scope URLs that haven't been visited.
+          // inScope() uses canonicalHost so "www.example.com" and
+          // "example.com" are treated as the same site.
+          if (!visited.has(normalizedLink) && inScope(link)) {
             urlQueue.push({ url: link, depth: depth + 1 });
           }
         }
