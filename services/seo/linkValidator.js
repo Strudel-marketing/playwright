@@ -63,7 +63,7 @@ async function validateLink(url, timeoutMs = 5000) {
             url,
             status,
             type: 'redirect',
-            redirectTo: res.headers['location'] || ''
+            redirect_to: res.headers['location'] || ''
           });
         } else {
           resolve({ url, status, type: 'ok' });

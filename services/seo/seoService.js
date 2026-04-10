@@ -91,7 +91,7 @@ async function performSeoAudit(url, options = {}) {
           url: reqUrl,
           status,
           type: resourceType,
-          statusText: resp.statusText()
+          status_text: resp.statusText()
         });
       }
 
@@ -102,7 +102,7 @@ async function performSeoAudit(url, options = {}) {
           url: reqUrl,
           status,
           type: resourceType,
-          redirectTo: resp.headers()['location'] || ''
+          redirect_to: resp.headers()['location'] || ''
         });
       }
 
