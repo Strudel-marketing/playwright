@@ -1,7 +1,18 @@
 /**
  * Site Audit Service
  *
- * Performs site-wide SEO analysis including:
+ * Unified SEO audit endpoint. Supports two modes:
+ *   - "site"        : crawl an entire site (default)
+ *   - "single_page" : audit a single URL (no crawling)
+ *
+ * Both modes return the exact same response contract (snake_case):
+ *   { success, audit_url, domain, mode, timestamp, execution_time,
+ *     total_pages, failed_pages, failed_urls, summary, pages: [<normalized page>] }
+ *
+ * Every entry in `pages` is produced by `normalizePage()` and is guaranteed
+ * to have the same shape regardless of mode.
+ *
+ * Features:
  * - Multi-page crawling with configurable depth/limits
  * - Resource validation (JS/CSS/Font errors)
  * - Duplicate title & meta description detection
@@ -16,21 +27,40 @@ const { validateLinks } = require('./linkValidator');
 const { URL } = require('url');
 
 /**
- * Normalize a URL for comparison (remove trailing slash, fragment, lowercase)
+ * Strip a leading "www." from a hostname (if present).
+ *
+ * Canonicalizing hostnames this way lets the crawler treat
+ * "www.example.com" and "example.com" as the SAME site — essential
+ * when a user passes a www URL and the server 301-redirects to the
+ * non-www canonical (or vice versa). Without this, in-page links
+ * extracted after the redirect have a different hostname from the
+ * starting URL and get rejected as "external", which collapses the
+ * whole crawl to a single page.
+ */
+function canonicalHost(hostname) {
+  if (!hostname) return '';
+  return hostname.toLowerCase().replace(/^www\./, '');
+}
+
+/**
+ * Normalize a URL for comparison (canonical host, remove trailing slash, lowercase).
+ * www. prefix is stripped so www and non-www resolve to the same normalized key.
  */
 function normalizeUrl(urlStr) {
   try {
     const parsed = new URL(urlStr);
+    const host = canonicalHost(parsed.hostname);
     let pathname = parsed.pathname.replace(/\/+$/, '') || '/';
-    // Strip query params for dedup (e.g. /cja/?ref=homepage == /cja/)
-    return (parsed.origin + pathname).toLowerCase();
+    // Strip query params and www for dedup
+    // (e.g. https://www.example.com/cja/?ref=x == https://example.com/cja/)
+    return (parsed.protocol + '//' + host + pathname).toLowerCase();
   } catch {
     return urlStr.toLowerCase();
   }
 }
 
 /**
- * Get the domain from a URL
+ * Get the raw hostname from a URL.
  */
 function getDomain(urlStr) {
   try {
@@ -38,6 +68,14 @@ function getDomain(urlStr) {
   } catch {
     return '';
   }
+}
+
+/**
+ * Get the canonical (www-stripped, lower-cased) hostname from a URL.
+ * Use this for scope comparisons during crawling.
+ */
+function getCanonicalDomain(urlStr) {
+  return canonicalHost(getDomain(urlStr));
 }
 
 /**
@@ -246,39 +284,253 @@ function calculateClickDepth(pages, homepageUrl) {
 }
 
 /**
- * Perform a full site audit
+ * Normalize a crawled page into the canonical snake_case output shape.
  *
- * @param {string} startUrl - The homepage/starting URL
+ * This is the SINGLE source of truth for the per-page contract. Every page
+ * returned by `performSiteAudit()` — regardless of mode — passes through
+ * this function so there is never a second shape.
+ *
+ * Input: the mutable pageData built during crawling (see performSiteAudit).
+ * Output: a flat-ish snake_case object covering identity, HTTP, basic SEO,
+ * headings, score, content, links, images, technical flags, social, structured
+ * data, performance, resource errors, redirects, broken links, cross-page
+ * analysis and (optional) mobile audit.
+ */
+function normalizePage(page) {
+  const seo = page.seoScore || {};
+  const info = page.pageInfo || {};
+  const meta = page.metaTags || {};
+  const checks = page.seoChecks || {};
+  const content = page.contentAnalysis || {};
+  const links = page.linkAnalysis || {};
+  const struct = page.structuredData || {};
+  const cwv = page.coreWebVitals || {};
+  const res = page.resourceErrors || {};
+  const redir = page.redirectInfo || {};
+  const headings = content.headings || {};
+  const headingCounts = content.headingCounts || {};
+  const text = content.text || {};
+  const og = meta.openGraph || {};
+  const tw = meta.twitter || {};
+
+  return {
+    // === Identity / HTTP ===
+    url: page.url,
+    initial_url: redir.initial_url || page.url,
+    final_url: redir.final_url || page.url,
+    status_code: page.statusCode ?? null,
+
+    // === Basic SEO ===
+    title: info.title || '',
+    title_length: checks.titleLength || 0,
+    title_optimal: !!checks.titleOptimal,
+    meta_description: meta.description || '',
+    meta_description_length: checks.metaDescriptionLength || 0,
+    meta_description_optimal: !!checks.metaDescriptionOptimal,
+    meta_keywords: meta.keywords || '',
+    meta_author: meta.author || '',
+    canonical: meta.canonical || '',
+    robots: meta.robots || '',
+    viewport: meta.viewport || '',
+    language: info.language || '',
+    charset: info.charset || '',
+    doctype: info.doctype || '',
+
+    // === Headings ===
+    h1: headings.h1?.[0] || '',
+    h1s: headings.h1 || [],
+    h1_count: headingCounts.h1 ?? checks.h1Count ?? 0,
+    h1_optimal: !!checks.h1Optimal,
+    h2_count: headingCounts.h2 ?? 0,
+    h2s: headings.h2 || [],
+    h3_count: headingCounts.h3 ?? 0,
+    h3s: headings.h3 || [],
+    total_headings: headingCounts.total ?? 0,
+
+    // === SEO Score ===
+    seo_score: seo.total || 0,
+    seo_grade: seo.grade || 'N/A',
+    seo_quality: seo.quality || '',
+    seo_categories: seo.categories || {},
+    seo_breakdown: seo.breakdown || {},
+    seo_recommendations: (seo.recommendations?.details || []).map(r => ({
+      issue: r.issue,
+      priority: r.priority,
+      category: r.category,
+      impact: r.impact
+    })),
+    seo_action_plan_summary: seo.recommendations?.actionPlan?.summary || null,
+
+    // === Content ===
+    word_count: text.totalWords || 0,
+    sentence_count: text.totalSentences || 0,
+    paragraph_count: text.totalParagraphs || 0,
+    avg_words_per_sentence: text.avgWordsPerSentence || 0,
+    avg_words_per_paragraph: text.avgWordsPerParagraph || 0,
+    content_language: text.language || '',
+    is_hebrew: !!text.isHebrew,
+    readability_score: content.readability?.score || 0,
+    readability_level: content.readability?.level || '',
+    dominant_phrases: content.enhancedKeywords?.dominant_phrases || [],
+    has_structured_content: !!content.structuredContent?.hasStructure,
+    lists_count: content.structuredContent?.lists?.total || 0,
+    tables_count: content.structuredContent?.tables || 0,
+    blockquotes_count: content.structuredContent?.blockquotes || 0,
+    code_blocks_count: content.structuredContent?.codeBlocks || 0,
+
+    // === Links ===
+    total_links: checks.totalLinks || 0,
+    internal_links_count: links.internal || 0,
+    external_links_count: links.external || 0,
+    internal_urls: links.allInternalUrls || [],
+    external_urls: links.allExternalUrls || [],
+    links_without_text: links.linksWithoutText ?? checks.linksWithoutText ?? 0,
+
+    // === Images ===
+    total_images: checks.totalImages || 0,
+    images_with_alt: checks.imagesWithAlt || 0,
+    images_without_alt: checks.imagesWithoutAlt || 0,
+    all_images_have_alt: !!checks.allImagesHaveAlt,
+
+    // === Technical flags ===
+    is_https: !!checks.isHttps,
+    has_title: !!checks.hasTitle,
+    has_meta_description: !!checks.hasMetaDescription,
+    has_h1: !!checks.hasH1,
+    has_canonical: !!checks.hasCanonical,
+    has_robots: !!checks.hasRobots,
+    has_viewport: !!checks.hasViewport,
+    has_doctype: !!checks.hasDoctype,
+    has_lang: !!checks.hasLang,
+    has_favicon: !!checks.hasFavicon,
+    has_sitemap: !!checks.hasSitemap,
+    has_open_graph: !!checks.hasOpenGraph,
+    has_json_ld: !!checks.hasJsonLd,
+    is_responsive: !!checks.isResponsive,
+
+    // === Social ===
+    open_graph: {
+      title: og.title || '',
+      description: og.description || '',
+      image: og.image || '',
+      url: og.url || '',
+      type: og.type || '',
+      site_name: og.siteName || ''
+    },
+    twitter_card: {
+      card: tw.card || '',
+      title: tw.title || '',
+      description: tw.description || '',
+      image: tw.image || '',
+      site: tw.site || ''
+    },
+
+    // === Structured data ===
+    schemas: struct.found_schemas || [],
+    schemas_count: struct.schemas_count || 0,
+    main_schema_type: struct.main_type || null,
+    critical_schemas: struct.critical_schemas || {},
+    schema_quality: struct.quality || {},
+    llm_readiness_score: struct.llm_readiness?.score || 0,
+    llm_readiness_level: struct.llm_readiness?.level || '',
+    llm_readiness_recommendations: struct.llm_readiness?.recommendations || [],
+
+    // === Performance ===
+    load_time: page.loadTime || 0,
+    execution_time: page.executionTime || 0,
+    lcp: cwv.lcp ?? null,
+    cls: cwv.cls ?? null,
+    ttfb: cwv.ttfb ?? null,
+
+    // === Resource errors ===
+    resource_errors_count: res.resource_errors_count || 0,
+    resource_errors: res.resource_errors || [],
+    js_errors_count: res.js_errors_count || 0,
+    css_errors_count: res.css_errors_count || 0,
+    font_errors_count: res.font_errors_count || 0,
+    image_errors_count: res.image_errors_count || 0,
+    media_errors_count: res.media_errors_count || 0,
+    resource_redirects_count: res.resource_redirects_count || 0,
+    resource_redirects: res.resource_redirects || [],
+    js_console_errors_count: (res.js_console_errors || []).length,
+    js_console_errors: res.js_console_errors || [],
+
+    // === Redirect chain ===
+    redirect_chain_length: redir.redirect_chain_length || 0,
+    redirect_chain: redir.redirect_chain || [],
+
+    // === Broken links (filled in during broken-link validation) ===
+    broken_links_count: page.broken_links_count || 0,
+    broken_links: page.broken_links || [],
+
+    // === Cross-page analysis (site mode; trivially defaulted in single_page) ===
+    inbound_links_count: page.inbound_links_count || 0,
+    is_orphan_page: !!page.is_orphan_page,
+    linked_from: page.linked_from || [],
+    click_depth: page.click_depth ?? null,
+    crawl_depth: page.crawl_depth ?? 0,
+    has_duplicate_title: !!page.has_duplicate_title,
+    duplicate_title_count: page.duplicate_title_count || 1,
+    duplicate_title_urls: page.duplicate_title_urls || [],
+    has_duplicate_meta: !!page.has_duplicate_meta,
+    duplicate_meta_count: page.duplicate_meta_count || 1,
+    duplicate_meta_urls: page.duplicate_meta_urls || [],
+
+    // === Mobile ===
+    mobile_audit: page.mobileAudit || null
+  };
+}
+
+/**
+ * Perform an SEO audit (single page or full site).
+ *
+ * @param {string} startUrl - The starting URL (homepage for site mode, target for single_page mode)
  * @param {Object} options - Configuration
- * @param {number} options.maxPages - Maximum pages to crawl (default: 500, 0 = unlimited)
- * @param {number} options.maxDepth - Maximum crawl depth (default: 5)
- * @param {boolean} options.validateBrokenLinks - Whether to check broken links (default: true)
+ * @param {"site"|"single_page"} options.mode - Audit mode (default: "site"). "single_page" audits only the given URL.
+ * @param {number} options.maxPages - Maximum pages to crawl (default: 500, 0 = unlimited). Forced to 1 in single_page mode.
+ * @param {number} options.maxDepth - Maximum crawl depth (default: 5). Forced to 0 in single_page mode.
+ * @param {boolean} options.validateBrokenLinks - Whether to check broken links (default: true for site, false for single_page)
  * @param {number} options.linkValidationConcurrency - Concurrent link checks (default: 10)
  * @param {number} options.pageConcurrency - Concurrent page scans (default: 3)
  * @param {string[]} options.skipLinkDomains - Domains to skip for broken link validation
  * @param {boolean} options.includeScreenshots - Include page screenshots (default: false)
  * @param {boolean} options.includeMobile - Include mobile audit (default: false)
  * @param {number} options.timeout - Per-page timeout in ms (default: 30000)
- * @returns {Object} Complete site audit results
+ * @returns {Object} Unified audit results (same shape for site and single_page modes)
  */
 async function performSiteAudit(startUrl, options = {}) {
+  // Detect single_page mode: explicit option OR maxPages === 1
+  const isSinglePage =
+    options.mode === 'single_page' ||
+    options.mode === 'single' ||
+    options.maxPages === 1;
+  const mode = isSinglePage ? 'single_page' : 'site';
+
   const {
-    maxPages = 500,
-    maxDepth = 5,
-    validateBrokenLinks = true,
+    validateBrokenLinks = !isSinglePage,
     linkValidationConcurrency = 10,
     pageConcurrency = 3,
     skipLinkDomains = ['google.com', 'facebook.com', 'twitter.com', 'youtube.com', 'linkedin.com', 'instagram.com'],
     includeScreenshots = false,
     includeMobile = false,
-    timeout = 30000
+    timeout = isSinglePage ? 60000 : 30000
   } = options;
+
+  // In single_page mode, FORCE maxPages=1 and maxDepth=0 regardless of what the caller passes.
+  // In site mode, use caller-provided values or sensible defaults.
+  const maxPages = isSinglePage ? 1 : (options.maxPages ?? 500);
+  const maxDepth = isSinglePage ? 0 : (options.maxDepth ?? 5);
 
   const startTime = Date.now();
   const domain = getDomain(startUrl);
+  // Canonical host for crawl-scope comparisons (strips "www.").
+  // We keep a Set so extra hostnames can be added after the first page
+  // loads and we learn the redirect target.
+  const scopeHosts = new Set([canonicalHost(domain)]);
+  const inScope = (u) => scopeHosts.has(getCanonicalDomain(u));
   const normalizedStart = normalizeUrl(startUrl);
 
-  console.log(`🔍 Starting site audit for: ${startUrl} (max ${maxPages} pages)`);
+  console.log(`🔍 Starting ${mode} audit for: ${startUrl}${isSinglePage ? '' : ` (max ${maxPages} pages)`}`);
 
   // === Phase 1: Crawl all pages ===
   const crawledPages = [];
@@ -360,13 +612,27 @@ async function performSiteAudit(startUrl, options = {}) {
 
       crawledPages.push(pageData);
 
+      // Learn the redirect-target host from the very first page we crawl.
+      // If the user started at https://www.example.com/ but the server
+      // 301-redirected to https://example.com/, Playwright's final URL is
+      // the non-www one and in-page JS extracts links under that host.
+      // We add the final_url's canonical host to the scope set so those
+      // links aren't rejected as "external". (canonicalHost already strips
+      // "www.", so the common www↔non-www case is covered too.)
+      const finalUrl = result.results?.redirectInfo?.final_url;
+      if (finalUrl) {
+        scopeHosts.add(getCanonicalDomain(finalUrl));
+      }
+
       // Discover new internal URLs to crawl
       if (depth < maxDepth && crawledPages.length < maxPages) {
         const internalUrls = result.results?.linkAnalysis?.allInternalUrls || [];
         for (const link of internalUrls) {
           const normalizedLink = normalizeUrl(link);
-          // Only crawl same-domain URLs that haven't been visited
-          if (!visited.has(normalizedLink) && getDomain(link) === domain) {
+          // Only crawl in-scope URLs that haven't been visited.
+          // inScope() uses canonicalHost so "www.example.com" and
+          // "example.com" are treated as the same site.
+          if (!visited.has(normalizedLink) && inScope(link)) {
             urlQueue.push({ url: link, depth: depth + 1 });
           }
         }
@@ -517,80 +783,14 @@ async function performSiteAudit(startUrl, options = {}) {
     ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1))
     : 0;
 
-  // Prepare page data for output (clean up large fields)
-  const pagesOutput = crawledPages.map(page => ({
-    url: page.url,
-    status_code: page.statusCode,
-    seo_score: page.seoScore?.total || 0,
-    seo_grade: page.seoScore?.grade || 'N/A',
-    title: page.pageInfo?.title || '',
-    meta_description: page.metaTags?.description || '',
-    h1: page.contentAnalysis?.headings?.h1?.[0] || '',
-    word_count: page.contentAnalysis?.text?.totalWords || 0,
-    load_time: page.loadTime || 0,
-
-    // Resource errors
-    resource_errors_count: page.resourceErrors?.resource_errors_count || 0,
-    js_errors_count: page.resourceErrors?.js_errors_count || 0,
-    css_errors_count: page.resourceErrors?.css_errors_count || 0,
-    font_errors_count: page.resourceErrors?.font_errors_count || 0,
-    image_errors_count: page.resourceErrors?.image_errors_count || 0,
-    media_errors_count: page.resourceErrors?.media_errors_count || 0,
-    resource_errors: page.resourceErrors?.resource_errors || [],
-    resource_redirects_count: page.resourceErrors?.resource_redirects_count || 0,
-    resource_redirects: page.resourceErrors?.resource_redirects || [],
-
-    // Duplicates
-    has_duplicate_title: page.has_duplicate_title || false,
-    duplicate_title_count: page.duplicate_title_count || 1,
-    duplicate_title_urls: page.duplicate_title_urls || [],
-    has_duplicate_meta: page.has_duplicate_meta || false,
-    duplicate_meta_count: page.duplicate_meta_count || 1,
-
-    // Orphan / Link graph
-    inbound_links_count: page.inbound_links_count || 0,
-    is_orphan_page: page.is_orphan_page || false,
-    linked_from: page.linked_from || [],
-    internal_links_count: page.linkAnalysis?.internal || 0,
-    external_links_count: page.linkAnalysis?.external || 0,
-
-    // Click depth
-    click_depth: page.click_depth,
-
-    // Redirect chain
-    redirect_chain_length: page.redirectInfo?.redirect_chain_length || 0,
-    redirect_chain: page.redirectInfo?.redirect_chain || [],
-    initial_url: page.redirectInfo?.initial_url || page.url,
-    final_url: page.redirectInfo?.final_url || page.url,
-
-    // Broken links
-    broken_links_count: page.broken_links_count || 0,
-    broken_links: page.broken_links || [],
-
-    // Core Web Vitals
-    lcp: page.coreWebVitals?.lcp || null,
-    cls: page.coreWebVitals?.cls || null,
-    ttfb: page.coreWebVitals?.ttfb || null,
-
-    // SEO checks
-    has_title: page.seoChecks?.hasTitle || false,
-    has_meta_description: page.seoChecks?.hasMetaDescription || false,
-    has_h1: page.seoChecks?.hasH1 || false,
-    is_https: page.seoChecks?.isHttps || false,
-    has_canonical: page.seoChecks?.hasCanonical || false,
-    images_without_alt: page.seoChecks?.imagesWithoutAlt || 0,
-
-    // Structured data
-    schemas: page.structuredData?.found_schemas || [],
-
-    // Crawl metadata
-    crawl_depth: page.crawl_depth
-  }));
+  // Single source of truth for per-page shape
+  const pagesOutput = crawledPages.map(normalizePage);
 
   const result = {
     success: true,
     audit_url: startUrl,
     domain,
+    mode,
     timestamp: new Date().toISOString(),
     execution_time: executionTime,
     total_pages: crawledPages.length,
@@ -655,6 +855,7 @@ async function performSiteAudit(startUrl, options = {}) {
 module.exports = {
   performSiteAudit,
   // Export utilities for testing
+  normalizePage,
   normalizeUrl,
   buildLinkGraph,
   detectOrphanPages,
