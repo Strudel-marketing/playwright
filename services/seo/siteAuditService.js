@@ -79,6 +79,24 @@ function getCanonicalDomain(urlStr) {
 }
 
 /**
+ * Canonicalize a URL for presentation: strip the leading "www." from the
+ * host but preserve the protocol, path, query, and hash so the URL still
+ * looks natural in output. Use this for `pages[].url` so every entry in a
+ * site audit reports URLs under a single canonical host, regardless of
+ * whether the crawler queued a www or bare URL for that page.
+ */
+function canonicalizeUrl(urlStr) {
+  if (!urlStr) return '';
+  try {
+    const parsed = new URL(urlStr);
+    const host = canonicalHost(parsed.hostname);
+    return `${parsed.protocol}//${host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return urlStr;
+  }
+}
+
+/**
  * Build an internal link graph from crawled pages
  * Returns a Map<normalizedUrl, Set<linkedFromUrls>>
  */
@@ -132,7 +150,7 @@ function detectOrphanPages(pages, linkGraph, homepageUrl) {
     page.linked_from = inboundCount <= 10 ? Array.from(inboundLinks) : [];
 
     if (isOrphan) {
-      orphans.push(page.url);
+      orphans.push(canonicalizeUrl(page.url));
     }
   }
 
@@ -147,18 +165,20 @@ function detectDuplicates(pages) {
   const metaMap = new Map();  // normalized meta desc -> [urls]
 
   for (const page of pages) {
+    const canonicalUrl = canonicalizeUrl(page.url);
+
     // Title duplicates
     const title = (page.pageInfo?.title || '').trim().toLowerCase();
     if (title && title.length > 0) {
       if (!titleMap.has(title)) titleMap.set(title, []);
-      titleMap.get(title).push(page.url);
+      titleMap.get(title).push(canonicalUrl);
     }
 
     // Meta description duplicates
     const meta = (page.metaTags?.description || '').trim().toLowerCase();
     if (meta && meta.length > 0) {
       if (!metaMap.has(meta)) metaMap.set(meta, []);
-      metaMap.get(meta).push(page.url);
+      metaMap.get(meta).push(canonicalUrl);
     }
   }
 
@@ -167,6 +187,7 @@ function detectDuplicates(pages) {
   let duplicateMetasCount = 0;
 
   for (const page of pages) {
+    const canonicalUrl = canonicalizeUrl(page.url);
     const title = (page.pageInfo?.title || '').trim().toLowerCase();
     const meta = (page.metaTags?.description || '').trim().toLowerCase();
 
@@ -175,7 +196,7 @@ function detectDuplicates(pages) {
     if (titleUrls.length > 1) {
       page.has_duplicate_title = true;
       page.duplicate_title_group = title;
-      page.duplicate_title_urls = titleUrls.filter(u => u !== page.url);
+      page.duplicate_title_urls = titleUrls.filter(u => u !== canonicalUrl);
       page.duplicate_title_count = titleUrls.length;
       duplicateTitlesCount++;
     } else {
@@ -188,7 +209,7 @@ function detectDuplicates(pages) {
     if (metaUrls.length > 1) {
       page.has_duplicate_meta = true;
       page.duplicate_meta_group = meta;
-      page.duplicate_meta_urls = metaUrls.filter(u => u !== page.url);
+      page.duplicate_meta_urls = metaUrls.filter(u => u !== canonicalUrl);
       page.duplicate_meta_count = metaUrls.length;
       duplicateMetasCount++;
     } else {
@@ -313,11 +334,20 @@ function normalizePage(page) {
   const og = meta.openGraph || {};
   const tw = meta.twitter || {};
 
+  // `url` is canonicalized so every entry in a site audit reports under
+  // the same host (e.g. "https://example.com/about"), even if the crawler
+  // originally queued it as "https://www.example.com/about" before the
+  // redirect. The raw original URL is preserved in `initial_url` and the
+  // raw post-redirect URL in `final_url`.
+  const rawUrl = page.url;
+  const finalUrl = redir.final_url || rawUrl;
+
   return {
     // === Identity / HTTP ===
-    url: page.url,
-    initial_url: redir.initial_url || page.url,
-    final_url: redir.final_url || page.url,
+    url: canonicalizeUrl(finalUrl),
+    initial_url: redir.initial_url || rawUrl,
+    final_url: finalUrl,
+    requested_url: rawUrl,
     status_code: page.statusCode ?? null,
 
     // === Basic SEO ===
@@ -568,7 +598,14 @@ async function performSiteAudit(startUrl, options = {}) {
             includeMobile,
             timeout,
             blockThirdParties: false, // Don't block - we need to track resource errors
-            waitUntil: 'networkidle'
+            waitUntil: 'networkidle',
+            // Site crawls are a legitimate high-volume operation. Bypass the
+            // browserPool's external rate limiter (10/min per domain) and
+            // per-domain mutex — the crawler manages concurrency itself via
+            // `pageConcurrency`. Without these skips, a site crawl of N>10
+            // pages trips the limiter and collapses to total_pages ≤ 10.
+            skipRateLimit: true,
+            skipDomainLock: true
           });
 
           return { url, depth, result, success: true };
@@ -586,7 +623,7 @@ async function performSiteAudit(startUrl, options = {}) {
       const { url, depth, result, success, error } = settledResult.value;
 
       if (!success) {
-        failedUrls.push({ url, error });
+        failedUrls.push({ url: canonicalizeUrl(url), error });
         continue;
       }
 
@@ -833,7 +870,7 @@ async function performSiteAudit(startUrl, options = {}) {
         total: redirectChains.length,
         long_chains: longRedirectChains.length,
         details: redirectChains.map(p => ({
-          url: p.url,
+          url: canonicalizeUrl(p.url),
           chain_length: p.redirectInfo.redirect_chain_length,
           chain: p.redirectInfo.redirect_chain
         }))
@@ -857,6 +894,9 @@ module.exports = {
   // Export utilities for testing
   normalizePage,
   normalizeUrl,
+  canonicalizeUrl,
+  canonicalHost,
+  getCanonicalDomain,
   buildLinkGraph,
   detectOrphanPages,
   detectDuplicates,

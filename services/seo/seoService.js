@@ -47,7 +47,13 @@ async function performSeoAudit(url, options = {}) {
     timeout = 60000,
     blockThirdParties = true,
     includeMobile = false,
-    language // אופציונלי: לאכוף שפה לניתוח ביטויים
+    language, // אופציונלי: לאכוף שפה לניתוח ביטויים
+    // Navigation opt-outs — forwarded to browserPool.safeNavigate().
+    // Set by siteAuditService during a site crawl so the crawler's
+    // own pageConcurrency controls parallelism and so the global
+    // 10/min rate limiter doesn't collapse the crawl.
+    skipRateLimit = false,
+    skipDomainLock = false
   } = options;
 
   const startTime = Date.now();
@@ -129,13 +135,14 @@ async function performSeoAudit(url, options = {}) {
     const navigationStart = Date.now();
 
     // ✅ FIXED: Use safeNavigate instead of page.goto
+    const navOpts = { waitUntil, timeout, skipRateLimit, skipDomainLock };
     let response;
     try {
-      response = await safeNavigate(url, { waitUntil, timeout });
+      response = await safeNavigate(url, navOpts);
     } catch (err) {
       if (waitUntil === 'networkidle') {
         console.warn('⚠️ networkidle timed out — retrying with domcontentloaded');
-        response = await safeNavigate(url, { waitUntil: 'domcontentloaded', timeout: Math.max(timeout, 45000) });
+        response = await safeNavigate(url, { ...navOpts, waitUntil: 'domcontentloaded', timeout: Math.max(timeout, 45000) });
       } else {
         throw err;
       }

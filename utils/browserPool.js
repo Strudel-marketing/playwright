@@ -175,28 +175,42 @@ class BrowserPool {
     }
 
     /**
+     * Canonicalize a hostname for rate-limit and lock keys.
+     * Strips a leading "www." so that "www.example.com" and "example.com"
+     * share the same counter and lock. This matches the crawl-scope
+     * canonicalization in siteAuditService.
+     */
+    canonicalDomainKey(urlStr) {
+        try {
+            return new URL(urlStr).hostname.toLowerCase().replace(/^www\./, '');
+        } catch {
+            return '';
+        }
+    }
+
+    /**
      * Check if we can make a request to a domain (rate limiting)
      * @param {string} url - URL to check
      * @returns {boolean} - Whether request is allowed
      */
     canMakeRequest(url) {
         try {
-            const domain = new URL(url).hostname;
+            const domain = this.canonicalDomainKey(url);
             const now = Date.now();
-            
+
             if (!this.requestCounts.has(domain)) {
                 this.requestCounts.set(domain, { count: 0, lastReset: now });
                 return true;
             }
-            
+
             const domainData = this.requestCounts.get(domain);
-            
+
             // Reset counter if a minute has passed
             if (now - domainData.lastReset > 60000) {
                 domainData.count = 0;
                 domainData.lastReset = now;
             }
-            
+
             return domainData.count < this.maxRequestsPerMinute;
         } catch (error) {
             console.warn('Rate limiting check failed:', error);
@@ -210,9 +224,9 @@ class BrowserPool {
      */
     recordRequest(url) {
         try {
-            const domain = new URL(url).hostname;
+            const domain = this.canonicalDomainKey(url);
             const now = Date.now();
-            
+
             if (!this.requestCounts.has(domain)) {
                 this.requestCounts.set(domain, { count: 1, lastReset: now });
             } else {
@@ -252,19 +266,30 @@ class BrowserPool {
     }
 
     /**
-     * Safe navigation with rate limiting and delays
+     * Safe navigation with rate limiting and delays.
+     *
      * @param {Object} page - Playwright page object
      * @param {string} url - URL to navigate to
-     * @param {Object} options - Navigation options
+     * @param {Object} options - Navigation options. In addition to standard
+     *   Playwright navigation options (waitUntil, timeout, ...), this accepts:
+     *   - `skipRateLimit` {boolean}: bypass the per-domain rate limiter.
+     *     Use for legitimate high-volume operations like site crawls where
+     *     the external rate limit is not applicable.
+     *   - `skipDomainLock` {boolean}: bypass the per-domain mutex. The lock
+     *     exists to prevent concurrent navigations to the same domain from
+     *     tripping anti-bot detection, but it also serializes site crawls
+     *     and defeats `pageConcurrency`. Site crawler manages concurrency
+     *     on its own so it opts out.
      * @returns {Promise} - Navigation promise
      */
     async safeNavigate(page, url, options = {}) {
-        const domain = new URL(url).hostname;
+        const { skipRateLimit = false, skipDomainLock = false, ...navOptions } = options;
+        const domainKey = this.canonicalDomainKey(url);
 
-        return this.withDomainLock(domain, async () => {
-            // Check rate limiting
-            if (!this.canMakeRequest(url)) {
-                throw new Error(`Rate limit exceeded for domain: ${domain}. Please wait before making more requests.`);
+        const doNavigate = async () => {
+            // Check rate limiting (unless the caller opted out)
+            if (!skipRateLimit && !this.canMakeRequest(url)) {
+                throw new Error(`Rate limit exceeded for domain: ${domainKey}. Please wait before making more requests.`);
             }
 
             // Add random delay before navigation
@@ -276,7 +301,7 @@ class BrowserPool {
             const navigationOptions = {
                 waitUntil: 'networkidle',
                 timeout: 30000,
-                ...options
+                ...navOptions
             };
 
             try {
@@ -284,17 +309,23 @@ class BrowserPool {
 
                 // ✅ CHANGED: record only after successful navigation
                 this.recordRequest(url);
-                
+
                 // Add small random delay after navigation
                 const postDelay = Math.floor(Math.random() * 1000) + 500; // 500-1500ms
                 await new Promise(resolve => setTimeout(resolve, postDelay));
-                
+
                 return response;
             } catch (error) {
                 console.error(`Navigation failed for ${url}:`, error.message);
                 throw error;
             }
-        });
+        };
+
+        // Run under the per-domain lock unless opted out.
+        // The canonical domain key means "www.example.com" and "example.com"
+        // share the same lock, so a crawl that starts at www and gets
+        // redirected to bare doesn't accidentally double its lock contention.
+        return skipDomainLock ? doNavigate() : this.withDomainLock(domainKey, doNavigate);
     }
 
     /**
