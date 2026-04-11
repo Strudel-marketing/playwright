@@ -113,6 +113,42 @@ function canonicalizeUrl(urlStr) {
   }
 }
 
+const NON_PAGE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'avif', 'ico', 'bmp', 'tif', 'tiff',
+  'mp4', 'webm', 'mov', 'avi', 'm4v', 'mp3', 'wav', 'ogg', 'm4a',
+  'pdf', 'zip', 'rar', '7z', 'gz', 'tar',
+  'css', 'js', 'mjs', 'map', 'json', 'xml', 'txt', 'csv',
+  'woff', 'woff2', 'ttf', 'otf', 'eot',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'
+]);
+
+function isCrawlablePageUrl(urlStr) {
+  if (!urlStr) return false;
+
+  try {
+    const parsed = new URL(urlStr);
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
+
+    const pathname = (parsed.pathname || '/').toLowerCase();
+    const match = pathname.match(/\.([a-z0-9]+)$/i);
+    if (match && NON_PAGE_EXTENSIONS.has(match[1].toLowerCase())) {
+      return false;
+    }
+
+    if (pathname.startsWith('/cdn-cgi/')) return false;
+    if (pathname.includes('/wp-content/uploads/')) return false;
+    if (pathname.includes('/wp-content/cache/')) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getCrawlableInternalUrls(page) {
+  return (page.linkAnalysis?.allInternalUrls || []).filter(isCrawlablePageUrl);
+}
+
 /**
  * Build an internal link graph from crawled pages
  * Returns a Map<normalizedUrl, Set<linkedFromUrls>>
@@ -131,7 +167,7 @@ function buildLinkGraph(pages) {
   // Build inbound link map
   for (const page of pages) {
     const fromUrl = normalizeUrl(page.url);
-    const internalLinks = page.linkAnalysis?.allInternalUrls || [];
+    const internalLinks = getCrawlableInternalUrls(page);
 
     for (const link of internalLinks) {
       const normalizedLink = normalizeUrl(link);
@@ -268,7 +304,7 @@ function calculateClickDepth(pages, homepageUrl) {
   const adjacency = new Map();
   for (const page of pages) {
     const normalized = normalizeUrl(page.url);
-    const outbound = (page.linkAnalysis?.allInternalUrls || []).map(normalizeUrl);
+    const outbound = getCrawlableInternalUrls(page).map(normalizeUrl);
     adjacency.set(normalized, outbound);
   }
 
@@ -429,7 +465,7 @@ function normalizePage(page) {
     total_links: checks.totalLinks || 0,
     internal_links_count: links.internal || 0,
     external_links_count: links.external || 0,
-    internal_urls: links.allInternalUrls || [],
+    internal_urls: (links.allInternalUrls || []).filter(isCrawlablePageUrl),
     external_urls: links.allExternalUrls || [],
     links_without_text: links.linksWithoutText ?? checks.linksWithoutText ?? 0,
 
@@ -699,7 +735,7 @@ async function performSiteAudit(startUrl, options = {}) {
 
       // Discover new internal URLs to crawl
       if (depth < maxDepth && crawledPages.length < maxPages) {
-        const internalUrls = result.results?.linkAnalysis?.allInternalUrls || [];
+        const internalUrls = (result.results?.linkAnalysis?.allInternalUrls || []).filter(isCrawlablePageUrl);
         for (const link of internalUrls) {
           const normalizedLink = normalizeUrl(link);
           // Only crawl in-scope URLs that haven't been visited.
@@ -764,7 +800,7 @@ async function performSiteAudit(startUrl, options = {}) {
     const allExternalLinks = new Set();
 
     for (const page of crawledPages) {
-      const internal = page.linkAnalysis?.allInternalUrls || [];
+      const internal = getCrawlableInternalUrls(page);
       const external = page.linkAnalysis?.allExternalUrls || [];
       internal.forEach(l => allInternalLinks.add(l));
       external.forEach(l => allExternalLinks.add(l));
@@ -814,7 +850,7 @@ async function performSiteAudit(startUrl, options = {}) {
 
     for (const page of crawledPages) {
       const allLinks = [
-        ...(page.linkAnalysis?.allInternalUrls || []),
+        ...getCrawlableInternalUrls(page),
         ...(page.linkAnalysis?.allExternalUrls || [])
       ];
       const pageBroken = allLinks.filter(l => brokenUrlSet.has(l));
