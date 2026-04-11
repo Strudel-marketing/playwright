@@ -27,7 +27,10 @@ function buildAuditOptions(body, { forceMode } = {}) {
         skipLinkDomains: opts.skipLinkDomains,
         includeScreenshots: opts.includeScreenshots ?? opts.includeScreenshot,
         includeMobile: opts.includeMobile,
-        timeout: opts.timeout
+        timeout: opts.timeout,
+        progressCallbackUrl: opts.progressCallbackUrl,
+        progressCallbackHeaders: opts.progressCallbackHeaders,
+        progressContext: opts.progressContext,
     };
 }
 

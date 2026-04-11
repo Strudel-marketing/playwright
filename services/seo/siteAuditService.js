@@ -26,6 +26,23 @@ const seoService = require('./seoService');
 const { validateLinks } = require('./linkValidator');
 const { URL } = require('url');
 
+async function sendProgressUpdate(progressCallbackUrl, progressCallbackHeaders = {}, payload = {}) {
+  if (!progressCallbackUrl || typeof fetch !== 'function') return;
+
+  try {
+    await fetch(progressCallbackUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...progressCallbackHeaders,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    console.warn('  ⚠️ Progress callback failed:', error.message);
+  }
+}
+
 /**
  * Strip a leading "www." from a hostname (if present).
  *
@@ -543,13 +560,25 @@ async function performSiteAudit(startUrl, options = {}) {
     skipLinkDomains = ['google.com', 'facebook.com', 'twitter.com', 'youtube.com', 'linkedin.com', 'instagram.com'],
     includeScreenshots = false,
     includeMobile = false,
-    timeout = isSinglePage ? 60000 : 30000
+    timeout = isSinglePage ? 60000 : 30000,
+    progressCallbackUrl,
+    progressCallbackHeaders,
+    progressContext = {}
   } = options;
 
   // In single_page mode, FORCE maxPages=1 and maxDepth=0 regardless of what the caller passes.
   // In site mode, use caller-provided values or sensible defaults.
   const maxPages = isSinglePage ? 1 : (options.maxPages ?? 500);
   const maxDepth = isSinglePage ? 0 : (options.maxDepth ?? 5);
+
+  const reportProgress = async (payload = {}) => {
+    await sendProgressUpdate(progressCallbackUrl, progressCallbackHeaders, {
+      status: 'running',
+      errors: 0,
+      ...progressContext,
+      ...payload,
+    });
+  };
 
   const startTime = Date.now();
   const domain = getDomain(startUrl);
@@ -561,6 +590,13 @@ async function performSiteAudit(startUrl, options = {}) {
   const normalizedStart = normalizeUrl(startUrl);
 
   console.log(`🔍 Starting ${mode} audit for: ${startUrl}${isSinglePage ? '' : ` (max ${maxPages} pages)`}`);
+
+  await reportProgress({
+    progress: 12,
+    current_step: 'מאתר עמודים באתר...',
+    pages_scanned: 0,
+    pages_total: 0,
+  });
 
   // === Phase 1: Crawl all pages ===
   const crawledPages = [];
@@ -675,9 +711,28 @@ async function performSiteAudit(startUrl, options = {}) {
         }
       }
     }
+
+    const knownTotal = crawledPages.length + urlQueue.length;
+    const crawlProgress = knownTotal > 0
+      ? Math.min(78, Math.max(12, Math.round((crawledPages.length / knownTotal) * 70)))
+      : 12;
+
+    await reportProgress({
+      progress: crawlProgress,
+      current_step: `נסרקו ${crawledPages.length} עמודים, התגלו עוד ${urlQueue.length} בתור`,
+      pages_scanned: crawledPages.length,
+      pages_total: knownTotal,
+    });
   }
 
   console.log(`  ✅ Crawled ${crawledPages.length} pages`);
+
+  await reportProgress({
+    progress: 82,
+    current_step: `הסריקה הסתיימה, מעבד ${crawledPages.length} עמודים`,
+    pages_scanned: crawledPages.length,
+    pages_total: crawledPages.length,
+  });
 
   // === Phase 2: Cross-page analysis (post-processing) ===
   console.log('  🔄 Running cross-page analysis...');
@@ -696,6 +751,13 @@ async function performSiteAudit(startUrl, options = {}) {
   let brokenLinksResult = null;
   if (validateBrokenLinks) {
     console.log('  🔗 Validating links...');
+
+    await reportProgress({
+      progress: 88,
+      current_step: 'בודק קישורים ומשלים ניתוח...',
+      pages_scanned: crawledPages.length,
+      pages_total: crawledPages.length,
+    });
 
     // Collect all unique links across all pages
     const allInternalLinks = new Set();
@@ -762,6 +824,13 @@ async function performSiteAudit(startUrl, options = {}) {
 
     console.log(`  ✅ Validated ${uncrawledInternalLinks.length + allExternalLinks.size} links`);
   }
+
+  await reportProgress({
+    progress: 94,
+    current_step: 'בונה סיכום סריקה...',
+    pages_scanned: crawledPages.length,
+    pages_total: crawledPages.length,
+  });
 
   // === Phase 4: Build summary ===
   const executionTime = Date.now() - startTime;
