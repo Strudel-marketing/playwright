@@ -28,6 +28,8 @@ function buildAuditOptions(body, { forceMode } = {}) {
         includeScreenshots: opts.includeScreenshots ?? opts.includeScreenshot,
         includeMobile: opts.includeMobile,
         timeout: opts.timeout,
+        waitUntil: opts.waitUntil,
+        blockThirdParties: opts.blockThirdParties,
         progressCallbackUrl: opts.progressCallbackUrl,
         progressCallbackHeaders: opts.progressCallbackHeaders,
         progressContext: opts.progressContext,

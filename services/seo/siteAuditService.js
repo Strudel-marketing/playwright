@@ -572,13 +572,15 @@ function normalizePage(page) {
  * @param {"site"|"single_page"} options.mode - Audit mode (default: "site"). "single_page" audits only the given URL.
  * @param {number} options.maxPages - Maximum pages to crawl (default: 500, 0 = unlimited). Forced to 1 in single_page mode.
  * @param {number} options.maxDepth - Maximum crawl depth (default: 5). Forced to 0 in single_page mode.
- * @param {boolean} options.validateBrokenLinks - Whether to check broken links (default: true for site, false for single_page)
+ * @param {boolean} options.validateBrokenLinks - Whether to run the optional broken-link validation phase (default: false). Kept off by default in site mode because it adds an N-links HEAD/GET sweep on top of the crawl; enable it explicitly when you need it.
  * @param {number} options.linkValidationConcurrency - Concurrent link checks (default: 10)
  * @param {number} options.pageConcurrency - Concurrent page scans (default: 3)
  * @param {string[]} options.skipLinkDomains - Domains to skip for broken link validation
  * @param {boolean} options.includeScreenshots - Include page screenshots (default: false)
  * @param {boolean} options.includeMobile - Include mobile audit (default: false)
- * @param {number} options.timeout - Per-page timeout in ms (default: 30000)
+ * @param {number} options.timeout - Per-page timeout in ms (default: 20000 for site, 60000 for single_page)
+ * @param {string} options.waitUntil - Playwright waitUntil for page navigation (default: 'domcontentloaded' for site, 'networkidle' for single_page). Site crawls use the lighter signal so a full-site scan doesn't stall on trackers/analytics that never go idle.
+ * @param {boolean} options.blockThirdParties - Block noisy 3rd-party scripts/assets during navigation (default: true for site, false for single_page). Site crawls block by default for speed; single-page keeps them so the resource-error report is complete.
  * @returns {Object} Unified audit results (same shape for site and single_page modes)
  */
 async function performSiteAudit(startUrl, options = {}) {
@@ -590,13 +592,24 @@ async function performSiteAudit(startUrl, options = {}) {
   const mode = isSinglePage ? 'single_page' : 'site';
 
   const {
-    validateBrokenLinks = !isSinglePage,
+    // Broken-link validation is an optional second phase — it sweeps every
+    // internal+external link discovered during the crawl, which on a large
+    // site doubles wall-clock time. Keep it off by default and let callers
+    // opt in explicitly when they want it.
+    validateBrokenLinks = false,
     linkValidationConcurrency = 10,
     pageConcurrency = 3,
     skipLinkDomains = ['google.com', 'facebook.com', 'twitter.com', 'youtube.com', 'linkedin.com', 'instagram.com'],
     includeScreenshots = false,
     includeMobile = false,
-    timeout = isSinglePage ? 60000 : 30000,
+    timeout = isSinglePage ? 60000 : 20000,
+    // Site crawls use `domcontentloaded` so slow trackers/analytics don't keep
+    // the network busy forever; single-page audits keep `networkidle` for the
+    // highest-fidelity snapshot of one URL.
+    waitUntil = isSinglePage ? 'networkidle' : 'domcontentloaded',
+    // Site crawls block noisy 3rd parties for speed. Single-page keeps them
+    // so the per-resource error report is complete.
+    blockThirdParties = !isSinglePage,
     progressCallbackUrl,
     progressCallbackHeaders,
     progressContext = {}
@@ -669,8 +682,8 @@ async function performSiteAudit(startUrl, options = {}) {
             includeScreenshot: includeScreenshots,
             includeMobile,
             timeout,
-            blockThirdParties: false, // Don't block - we need to track resource errors
-            waitUntil: 'networkidle',
+            blockThirdParties,
+            waitUntil,
             // Site crawls are a legitimate high-volume operation. Bypass the
             // browserPool's external rate limiter (10/min per domain) and
             // per-domain mutex — the crawler manages concurrency itself via
