@@ -24,6 +24,11 @@
 
 const seoService = require('./seoService');
 const { validateLinks } = require('./linkValidator');
+const {
+  enqueueUniqueCrawlUrls,
+  getCrawlProgressCounts,
+  isCrawlablePageUrl,
+} = require('./crawlQueue');
 const { URL } = require('url');
 
 async function sendProgressUpdate(progressCallbackUrl, progressCallbackHeaders = {}, payload = {}) {
@@ -110,38 +115,6 @@ function canonicalizeUrl(urlStr) {
     return `${parsed.protocol}//${host}${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return urlStr;
-  }
-}
-
-const NON_PAGE_EXTENSIONS = new Set([
-  'jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'avif', 'ico', 'bmp', 'tif', 'tiff',
-  'mp4', 'webm', 'mov', 'avi', 'm4v', 'mp3', 'wav', 'ogg', 'm4a',
-  'pdf', 'zip', 'rar', '7z', 'gz', 'tar',
-  'css', 'js', 'mjs', 'map', 'json', 'xml', 'txt', 'csv',
-  'woff', 'woff2', 'ttf', 'otf', 'eot',
-  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'
-]);
-
-function isCrawlablePageUrl(urlStr) {
-  if (!urlStr) return false;
-
-  try {
-    const parsed = new URL(urlStr);
-    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
-
-    const pathname = (parsed.pathname || '/').toLowerCase();
-    const match = pathname.match(/\.([a-z0-9]+)$/i);
-    if (match && NON_PAGE_EXTENSIONS.has(match[1].toLowerCase())) {
-      return false;
-    }
-
-    if (pathname.startsWith('/cdn-cgi/')) return false;
-    if (pathname.includes('/wp-content/uploads/')) return false;
-    if (pathname.includes('/wp-content/cache/')) return false;
-
-    return true;
-  } catch {
-    return false;
   }
 }
 
@@ -651,6 +624,7 @@ async function performSiteAudit(startUrl, options = {}) {
   const crawledPages = [];
   const urlQueue = [{ url: startUrl, depth: 0 }];
   const visited = new Set();
+  const scheduledUrls = new Set([normalizedStart]);
   const failedUrls = [];
 
   // Crawl pages with concurrency control (maxPages=0 means unlimited)
@@ -748,29 +722,32 @@ async function performSiteAudit(startUrl, options = {}) {
 
       // Discover new internal URLs to crawl
       if (depth < maxDepth && crawledPages.length < maxPages) {
-        const internalUrls = (result.results?.linkAnalysis?.allInternalUrls || []).filter(isCrawlablePageUrl);
-        for (const link of internalUrls) {
-          const normalizedLink = normalizeUrl(link);
-          // Only crawl in-scope URLs that haven't been visited.
-          // inScope() uses canonicalHost so "www.example.com" and
-          // "example.com" are treated as the same site.
-          if (!visited.has(normalizedLink) && inScope(link)) {
-            urlQueue.push({ url: link, depth: depth + 1 });
-          }
-        }
+        enqueueUniqueCrawlUrls(
+          urlQueue,
+          scheduledUrls,
+          result.results?.linkAnalysis?.allInternalUrls || [],
+          depth + 1,
+          inScope,
+          normalizeUrl,
+        );
       }
     }
 
-    const knownTotal = crawledPages.length + urlQueue.length;
+    const { pagesTotal: knownTotal, pagesRemaining } = getCrawlProgressCounts(
+      crawledPages.length,
+      urlQueue.length,
+      effectiveMaxPages,
+    );
     const crawlProgress = knownTotal > 0
       ? Math.min(78, Math.max(12, Math.round((crawledPages.length / knownTotal) * 70)))
       : 12;
 
     await reportProgress({
       progress: crawlProgress,
-      current_step: `נסרקו ${crawledPages.length} עמודים, התגלו עוד ${urlQueue.length} בתור`,
+      current_step: `נסרקו ${crawledPages.length} עמודים, ${pagesRemaining} נותרו בתור`,
       pages_scanned: crawledPages.length,
       pages_total: knownTotal,
+      errors: failedUrls.length,
     });
   }
 
