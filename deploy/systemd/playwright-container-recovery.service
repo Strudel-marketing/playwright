@@ -1,0 +1,17 @@
+[Unit]
+Description=Recover Playwright container after Tailscale becomes available
+After=docker.service network-online.target snap.tailscale.tailscaled.service
+Requires=docker.service
+Wants=network-online.target snap.tailscale.tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=PLAYWRIGHT_BIND_IP=100.89.89.54
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do ip address show | grep -Fq "${PLAYWRIGHT_BIND_IP}/32" && exit 0; sleep 2; done; exit 1'
+ExecStart=/usr/bin/docker start playwright
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
