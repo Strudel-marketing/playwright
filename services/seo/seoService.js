@@ -409,6 +409,12 @@ async function extractBasicData(page, url) {
       // Fix: Trim meta description to match seoChecks logic
       const rawDescription = document.querySelector('meta[name="description"]')?.content || '';
       const description = rawDescription.trim();
+      const hreflang = Array.from(document.querySelectorAll('link[rel="alternate"][hreflang]'))
+        .map(link => ({
+          language: (link.getAttribute('hreflang') || '').trim().toLowerCase(),
+          url: link.href || '',
+        }))
+        .filter(item => item.language && item.url);
 
       return {
         description,
@@ -417,6 +423,7 @@ async function extractBasicData(page, url) {
         robots: document.querySelector('meta[name="robots"]')?.content || '',
         viewport: document.querySelector('meta[name="viewport"]')?.content || '',
         canonical: document.querySelector('link[rel="canonical"]')?.href || '',
+        hreflang,
         openGraph: {
           title: document.querySelector('meta[property="og:title"]')?.content || '',
           description: document.querySelector('meta[property="og:description"]')?.content || '',

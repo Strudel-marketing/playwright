@@ -24,6 +24,7 @@
 
 const seoService = require('./seoService');
 const { validateLinks } = require('./linkValidator');
+const { collectSiteSignals } = require('./siteSignals');
 const {
   enqueueUniqueCrawlUrls,
   getCrawlProgressCounts,
@@ -386,6 +387,9 @@ function normalizePage(page) {
     meta_keywords: meta.keywords || '',
     meta_author: meta.author || '',
     canonical: meta.canonical || '',
+    hreflang: meta.hreflang || [],
+    hreflang_count: (meta.hreflang || []).length,
+    has_hreflang_x_default: (meta.hreflang || []).some(item => item.language === 'x-default'),
     robots: meta.robots || '',
     viewport: meta.viewport || '',
     language: info.language || '',
@@ -604,6 +608,7 @@ async function performSiteAudit(startUrl, options = {}) {
 
   const startTime = Date.now();
   const domain = getDomain(startUrl);
+  const siteSignalsPromise = collectSiteSignals(startUrl);
   // Canonical host for crawl-scope comparisons (strips "www.").
   // We keep a Set so extra hostnames can be added after the first page
   // loads and we learn the redirect target.
@@ -917,6 +922,7 @@ async function performSiteAudit(startUrl, options = {}) {
 
   // Single source of truth for per-page shape
   const pagesOutput = crawledPages.map(normalizePage);
+  const siteSignals = await siteSignalsPromise;
 
   const result = {
     success: true,
@@ -931,6 +937,7 @@ async function performSiteAudit(startUrl, options = {}) {
     summary: {
       avg_seo_score: avgScore,
       status_codes: statusCodes,
+      site_signals: siteSignals,
 
       resource_errors: {
         total: totalResourceErrors,
