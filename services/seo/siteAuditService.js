@@ -129,12 +129,16 @@ function getCrawlableInternalUrls(page) {
  */
 function buildLinkGraph(pages) {
   const graph = new Map();
+  // Sources whose link to the target sits in the main content area
+  // (linkAnalysis.internalUrls excludes nav/header/footer/aside).
+  const contentGraph = new Map();
 
   // Initialize all crawled pages in the graph
   for (const page of pages) {
     const normalizedUrl = normalizeUrl(page.url);
     if (!graph.has(normalizedUrl)) {
       graph.set(normalizedUrl, new Set());
+      contentGraph.set(normalizedUrl, new Set());
     }
   }
 
@@ -142,25 +146,31 @@ function buildLinkGraph(pages) {
   for (const page of pages) {
     const fromUrl = normalizeUrl(page.url);
     const internalLinks = getCrawlableInternalUrls(page);
+    const contentLinks = new Set((page.linkAnalysis?.internalUrls || []).map(normalizeUrl));
 
     for (const link of internalLinks) {
       const normalizedLink = normalizeUrl(link);
       if (!graph.has(normalizedLink)) {
         graph.set(normalizedLink, new Set());
+        contentGraph.set(normalizedLink, new Set());
       }
       // Don't count self-links
       if (normalizedLink !== fromUrl) {
         graph.get(normalizedLink).add(fromUrl);
+        if (contentLinks.has(normalizedLink)) contentGraph.get(normalizedLink).add(fromUrl);
       }
     }
   }
 
+  graph.contentGraph = contentGraph;
   return graph;
 }
 
 /**
  * Detect orphan pages (pages with no inbound internal links)
  */
+const LINKED_FROM_CAP = 500;
+
 function detectOrphanPages(pages, linkGraph, homepageUrl) {
   const normalizedHomepage = normalizeUrl(homepageUrl);
   const orphans = [];
@@ -171,10 +181,19 @@ function detectOrphanPages(pages, linkGraph, homepageUrl) {
     const inboundCount = inboundLinks.size;
     const isOrphan = inboundCount === 0 && normalizedUrl !== normalizedHomepage;
 
+    const contentInbound = linkGraph.contentGraph?.get(normalizedUrl) || new Set();
+    const sources = Array.from(inboundLinks);
+
     page.inbound_links_count = inboundCount;
     page.is_orphan_page = isOrphan;
-    // Store linked_from only for pages with < 10 inbound links (save space)
-    page.linked_from = inboundCount <= 10 ? Array.from(inboundLinks) : [];
+    // Full source list (capped for payload size); true count is inbound_links_count.
+    page.linked_from = sources.slice(0, LINKED_FROM_CAP);
+    page.linked_from_truncated = inboundCount > LINKED_FROM_CAP;
+    // Sources that link only from nav/header/footer/aside.
+    page.linked_from_nav = sources.filter(u => !contentInbound.has(u)).slice(0, LINKED_FROM_CAP);
+    page.content_inbound_count = contentInbound.size;
+    // Linked from more than half of crawled pages = sitewide/menu link.
+    page.is_sitewide_linked = pages.length > 2 && inboundCount > pages.length / 2;
 
     if (isOrphan) {
       orphans.push(canonicalizeUrl(page.url));
@@ -527,6 +546,10 @@ function normalizePage(page) {
     inbound_links_count: page.inbound_links_count || 0,
     is_orphan_page: !!page.is_orphan_page,
     linked_from: page.linked_from || [],
+    linked_from_truncated: !!page.linked_from_truncated,
+    linked_from_nav: page.linked_from_nav || [],
+    content_inbound_count: page.content_inbound_count || 0,
+    is_sitewide_linked: !!page.is_sitewide_linked,
     click_depth: page.click_depth ?? null,
     crawl_depth: page.crawl_depth ?? 0,
     has_duplicate_title: !!page.has_duplicate_title,
